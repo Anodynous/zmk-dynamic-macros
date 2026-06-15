@@ -24,6 +24,9 @@
 #include <zmk-behavior-dynamic-macros/dm_query.h>
 #include <zmk-behavior-dynamic-macros/dm_shell.h>
 #include <zmk-behavior-dynamic-macros/events/dynamic_macro_state_changed.h>
+#if DM_TYPING_ENABLED
+#include <zmk-behavior-dynamic-macros/dm_feedback_pump.h>
+#endif
 
 LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 
@@ -44,38 +47,58 @@ static enum zmk_dynamic_macro_event_type map_event(dm_notify_code machine_event)
     case DM_EVT_PLAY_STARTED:       return ZMK_DYNAMIC_MACRO_PLAY_STARTED;
     case DM_EVT_PLAY_FINISHED:      return ZMK_DYNAMIC_MACRO_PLAY_FINISHED;
     case DM_EVT_PREVIEW_READY:      return ZMK_DYNAMIC_MACRO_PREVIEW_READY;
+    case DM_EVT_MOVE_PROMPT:        return ZMK_DYNAMIC_MACRO_MOVE_PROMPT;
+    case DM_EVT_MOVE_SRC_SELECTED:  return ZMK_DYNAMIC_MACRO_MOVE_SRC_SELECTED;
+    case DM_EVT_MOVE_CANCELLED:     return ZMK_DYNAMIC_MACRO_MOVE_CANCELLED;
+    case DM_EVT_DELETE_PROMPT:      return ZMK_DYNAMIC_MACRO_DELETE_PROMPT;
+    case DM_EVT_PREVIEW_PROMPT:     return ZMK_DYNAMIC_MACRO_PREVIEW_PROMPT;
+    case DM_EVT_CHAIN_INSERTED:     return ZMK_DYNAMIC_MACRO_CHAIN_INSERTED;
+    case DM_EVT_PENDING_CANCELLED:  return ZMK_DYNAMIC_MACRO_PENDING_CANCELLED;
+    case DM_EVT_SETTINGS_CHANGED:   return ZMK_DYNAMIC_MACRO_SETTINGS_CHANGED;
     case DM_EVT_ERROR_NO_RECORDING: return ZMK_DYNAMIC_MACRO_ERROR_NO_RECORDING;
     case DM_EVT_ERROR_SLOT_EMPTY:   return ZMK_DYNAMIC_MACRO_ERROR_SLOT_EMPTY;
+    case DM_EVT_ERROR_SLOT_OCCUPIED:return ZMK_DYNAMIC_MACRO_ERROR_SLOT_OCCUPIED;
     case DM_EVT_ERROR_OVERFLOW:     return ZMK_DYNAMIC_MACRO_ERROR_OVERFLOW;
+    case DM_EVT_ERROR_CHAIN_FULL:   return ZMK_DYNAMIC_MACRO_ERROR_CHAIN_FULL;
     case DM_EVT_ERROR_SAVE_FAILED:  return ZMK_DYNAMIC_MACRO_ERROR_SAVE_FAILED;
     case DM_EVT_ERROR_DELETE_FAILED:return ZMK_DYNAMIC_MACRO_ERROR_DELETE_FAILED;
-    case DM_EVT_ERROR_QUEUE_FULL:   return ZMK_DYNAMIC_MACRO_ERROR_QUEUE_FULL;
+    case DM_EVT_ERROR_SAVE_QUEUE_FULL:   return ZMK_DYNAMIC_MACRO_ERROR_SAVE_QUEUE_FULL;
+    case DM_EVT_ERROR_DELETE_QUEUE_FULL: return ZMK_DYNAMIC_MACRO_ERROR_DELETE_QUEUE_FULL;
     case DM_EVT__COUNT:             break; /* not a real code */
     }
     return ZMK_DYNAMIC_MACRO_ERROR_NO_RECORDING;
 }
 
-static enum zmk_dynamic_macro_state coarse_state(struct dm_inst *inst) {
-    switch (dm_machine_state(&inst->machine)) {
-    case DM_STATE_RECORDING: return ZMK_DYNAMIC_MACRO_STATE_RECORDING;
-    case DM_STATE_PLAYING:   return ZMK_DYNAMIC_MACRO_STATE_PLAYING;
-    default:                 return ZMK_DYNAMIC_MACRO_STATE_IDLE;
+/* The machine's effective (settled/destination) state, projected to the public
+ * enum. Reads through TYPING_* to the parked return-state, so .state is the mode
+ * the machine has settled into — and dm_get_state() agrees with every event. */
+static enum zmk_dynamic_macro_state map_state(struct dm_inst *inst) {
+    switch (dm_machine_effective_state(&inst->machine)) {
+    case DM_STATE_RECORDING:       return ZMK_DYNAMIC_MACRO_STATE_RECORDING;
+    case DM_STATE_PLAYING:         return ZMK_DYNAMIC_MACRO_STATE_PLAYING;
+    case DM_STATE_PENDING_ASSIGN:  return ZMK_DYNAMIC_MACRO_STATE_ASSIGN_PENDING;
+    case DM_STATE_MOVE_PENDING:    return ZMK_DYNAMIC_MACRO_STATE_MOVE_PENDING;
+    case DM_STATE_DELETE_PENDING:  return ZMK_DYNAMIC_MACRO_STATE_DELETE_PENDING;
+    case DM_STATE_PREVIEW_PENDING: return ZMK_DYNAMIC_MACRO_STATE_PREVIEW_PENDING;
+    default:                       return ZMK_DYNAMIC_MACRO_STATE_IDLE;
     }
 }
 
-void dm_events_raise(struct dm_inst *inst, int machine_event, int slot) {
+void dm_events_raise(struct dm_inst *inst, int machine_event, int slot, int slot2) {
     enum zmk_dynamic_macro_event_type ev = map_event(machine_event);
-    enum zmk_dynamic_macro_state st = coarse_state(inst);
+    enum zmk_dynamic_macro_state st = map_state(inst);
 
     /* Fixed log shape: tooling strips "dm_event: " and captures
-     * "type=N slot=N state=N". */
-    LOG_DBG("dm_event: type=%d slot=%d state=%d", (int)ev, slot, (int)st);
+     * "type=N slot=N slot2=N state=N". */
+    LOG_DBG("dm_event: type=%d slot=%d slot2=%d state=%d", (int)ev, slot, slot2, (int)st);
 
     raise_zmk_dynamic_macro_state_changed((struct zmk_dynamic_macro_state_changed){
         .state = st,
         .event = ev,
         .slot = slot,
-        .slot_is_nvs = slot >= 0 ? slot_is_nvs(slot) : false,
+        .slot2 = slot2,
+        .slot_is_nvs  = slot  >= 0 ? slot_is_nvs(slot)  : false,
+        .slot2_is_nvs = slot2 >= 0 ? slot_is_nvs(slot2) : false,
     });
 }
 
@@ -149,7 +172,39 @@ int dm_get_total_ram_slots(void) {
 
 enum zmk_dynamic_macro_state dm_get_state(void) {
     struct dm_inst *inst = dm_shell_instance();
-    return inst ? coarse_state(inst) : ZMK_DYNAMIC_MACRO_STATE_IDLE;
+    return inst ? map_state(inst) : ZMK_DYNAMIC_MACRO_STATE_IDLE;
+}
+
+/* ---- settings (knob) queries ---------------------------------------------- */
+
+/* The display reads these on a SETTINGS_CHANGED event. They mirror the pump's
+ * runtime knobs; when feedback is compiled out there is no runtime knob, so the
+ * defensive default is returned (SETTINGS_CHANGED only fires under typing). */
+int dm_get_feedback_level(void) {
+#if DM_TYPING_ENABLED
+    struct dm_inst *inst = dm_shell_instance();
+    return inst ? (int)dm_feedback_level(&inst->feedback) : 0;
+#else
+    return 0;
+#endif
+}
+
+int dm_get_feedback_style(void) {
+#if DM_TYPING_ENABLED
+    struct dm_inst *inst = dm_shell_instance();
+    return inst ? (int)dm_feedback_style(&inst->feedback) : 0;
+#else
+    return 0;
+#endif
+}
+
+bool dm_get_erase_enabled(void) {
+#if DM_TYPING_ENABLED
+    struct dm_inst *inst = dm_shell_instance();
+    return inst ? dm_feedback_erase(&inst->feedback) : false;
+#else
+    return false;
+#endif
 }
 
 uint32_t dm_get_recording_event_count(void) {

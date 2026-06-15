@@ -260,6 +260,9 @@ CONFIG_ZMK_BEHAVIOR_DYNAMIC_MACRO_EVENTS=y
 
 The event system provides:
 - **Events** for state changes (recording started/stopped, saved, deleted, playback, errors)
+- **Mode visibility** for move (prompt → source → moved/cancel), delete, and preview modes
+- **Settings mirroring** — a `SETTINGS_CHANGED` event plus queries for the current
+  feedback level, style, and auto-erase state
 - **Query API** to get current state, slot counts, and slot contents
 - **Preview mode** (`DM_PREVIEW`) to inspect slot contents on demand
 

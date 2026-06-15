@@ -111,8 +111,11 @@ typedef struct {
      */
     void (*apply_knob)(void *ctx, dm_command cmd);
 
-    /* notifications (raised before speak — fire at every feedback level) */
-    void (*notify)(void *ctx, int event, int slot);
+    /* notifications (fire at every feedback level, independent of speak). slot2 is
+     * the secondary slot for two-slot ops (MOVED: slot=dst, slot2=src); -1 when
+     * unused. Raised AFTER the single state write, so the event reports the
+     * destination/effective mode (see dm_machine_effective_state). */
+    void (*notify)(void *ctx, int event, int slot, int slot2);
 
     /* (re)start the assign/move/delete/preview timeout. The machine calls this
      * whenever it enters or re-arms a *_PENDING state, including from the
@@ -146,6 +149,16 @@ void dm_machine_init(dm_machine *m, slot_store *s, const dm_machine_callbacks *c
 dm_result dm_machine_command(dm_machine *m, dm_command cmd, int param);
 
 dm_state dm_machine_state(const dm_machine *m);
+
+/*
+ * The machine's EFFECTIVE settled state: the parked return-state while the machine
+ * is mid-typing (TYPING_FEEDBACK / TYPING_ERASE), else the live state. return_state
+ * / erase_return_state are always settled (never TYPING_*), so the result is always
+ * a settled state. dm_events maps THIS to the public state, so a widget's .state is
+ * the mode the machine has settled into (or is settling into) rather than the
+ * transient typing state.
+ */
+dm_state dm_machine_effective_state(const dm_machine *m);
 
 /* ---- Up-calls — completion reports from feedback and storage ------------- */
 

@@ -70,11 +70,24 @@ dm_state dm_machine_state(const dm_machine *m) {
     return m->state;
 }
 
+dm_state dm_machine_effective_state(const dm_machine *m) {
+    if (m->state == DM_STATE_TYPING_FEEDBACK) {
+        return m->return_state;
+    }
+    if (m->state == DM_STATE_TYPING_ERASE) {
+        return m->erase_return_state;
+    }
+    return m->state;
+}
+
 /* ---- small helpers -------------------------------------------------------- */
 
-static void notify(dm_machine *m, int event, int slot) {
+/* Raise a widget notification. slot2 is the secondary slot for two-slot ops
+ * (MOVED), else -1. Always raised AFTER the single state write, so the event's
+ * effective state is the mode the transition is settling into. */
+static void notify(dm_machine *m, int event, int slot, int slot2) {
     if (m->cb->notify) {
-        m->cb->notify(m->cb->ctx, event, slot);
+        m->cb->notify(m->cb->ctx, event, slot, slot2);
     }
 }
 
@@ -124,42 +137,45 @@ static dm_result do_rec(dm_machine *m) {
     /* REC from PENDING_ASSIGN with a non-empty draft discards the unassigned take
      * in favor of a fresh recording — the reset below drops it unconditionally. */
     m->cb->store_draft_reset(m->cb->ctx);
-    /* notify BEFORE the state write so the event's coarse state reflects the
-     * pre-transition state. The cue then types while suppressed and returns to
-     * RECORDING; parking the destination as the return-state (not writing it
-     * directly) is what lets the OFF-path typing_finished restore RECORDING
-     * instead of clobbering to IDLE. */
-    notify(m, DM_EVT_RECORDING_STARTED, -1);
+    /* notify after the state write so the event's effective state reads
+     * RECORDING — its destination. Parking the destination as the return-state
+     * (not writing it directly) is what lets the OFF-path typing_finished restore
+     * RECORDING instead of clobbering to IDLE; the effective state reads through to
+     * that parked return-state while the cue types. */
     enter_typing(m, DM_STATE_RECORDING);
+    notify(m, DM_EVT_RECORDING_STARTED, -1, -1);
     speak(m, DM_FB_REC, -1, -1, false);
     return DM_OK;
 }
 
 static dm_result do_stop(dm_machine *m) {
     if (m->cb->store_draft_count(m->cb->ctx) == 0) {
-        notify(m, DM_EVT_ERROR_NO_RECORDING, -1);
         enter_typing(m, DM_STATE_IDLE);
+        notify(m, DM_EVT_ERROR_NO_RECORDING, -1, -1);
         speak(m, DM_FB_NO_REC, -1, -1, false);
         return DM_OK;
     }
-    /* raise STOPPED while still RECORDING (so the event's coarse state reads
-     * RECORDING) before parking PENDING_ASSIGN. */
-    notify(m, DM_EVT_RECORDING_STOPPED, -1);
+    /* raise STOPPED after parking PENDING_ASSIGN: the event's effective state
+     * reads ASSIGN_PENDING — the mode the machine is settling into. */
     enter_typing(m, DM_STATE_PENDING_ASSIGN);
+    notify(m, DM_EVT_RECORDING_STOPPED, -1, -1);
     speak(m, DM_FB_STOP, -1, -1, false);
     return DM_OK;
 }
 
 static dm_result do_overflow(dm_machine *m) {
-    notify(m, DM_EVT_ERROR_OVERFLOW, -1);
     enter_typing(m, DM_STATE_PENDING_ASSIGN);
+    notify(m, DM_EVT_ERROR_OVERFLOW, -1, -1);
     speak(m, DM_FB_OVERFLOW, -1, -1, false);
     return DM_OK;
 }
 
 static dm_result do_delete_mode(dm_machine *m) {
-    /* no cue — enters the pending state directly and arms its own timeout. */
+    /* no cue — enters the pending state directly and arms its own timeout. The
+     * DELETE_PROMPT notification gives a display the mode entry feedback cannot
+     * speak (there is no cue). */
     m->state = DM_STATE_DELETE_PENDING;
+    notify(m, DM_EVT_DELETE_PROMPT, -1, -1);
     arm_timeout(m);
     return DM_OK;
 }
@@ -169,6 +185,7 @@ static dm_result do_move_mode(dm_machine *m) {
     /* the prompt cue returns to MOVE_PENDING; typing_finished re-arms the timeout
      * for the returned pending state, so no explicit arm here. */
     enter_typing(m, DM_STATE_MOVE_PENDING);
+    notify(m, DM_EVT_MOVE_PROMPT, -1, -1);
     speak(m, DM_FB_MOVE_PROMPT, -1, -1, false);
     return DM_OK;
 }
@@ -182,7 +199,10 @@ static dm_result do_status(dm_machine *m) {
 }
 
 static dm_result do_preview(dm_machine *m) {
+    /* no cue — like delete mode, the PREVIEW_PROMPT notification is the only entry
+     * signal a display gets. */
     m->state = DM_STATE_PREVIEW_PENDING;
+    notify(m, DM_EVT_PREVIEW_PROMPT, -1, -1);
     arm_timeout(m);
     return DM_OK;
 }
@@ -194,6 +214,11 @@ static dm_result do_preview(dm_machine *m) {
  * typing_finished like any speak. */
 static dm_result do_knob(dm_machine *m, dm_command cmd) {
     enter_typing(m, DM_STATE_IDLE);
+    /* one event covers every knob; the display reads the new value on demand via
+     * dm_get_feedback_level / _style / dm_get_erase_enabled. Raised before
+     * apply_knob, which may drive typing_finished synchronously (OFF path) and
+     * settle the machine out of TYPING_FEEDBACK. */
+    notify(m, DM_EVT_SETTINGS_CHANGED, -1, -1);
     m->cb->apply_knob(m->cb->ctx, cmd);
     return DM_OK;
 }
@@ -201,19 +226,23 @@ static dm_result do_knob(dm_machine *m, dm_command cmd) {
 /* SLOT in RECORDING = chain source into the draft. */
 static dm_result slot_recording(dm_machine *m, int idx) {
     if (slot_empty(m, idx)) {
-        /* raise while still RECORDING (so the event's coarse state reads RECORDING) */
-        notify(m, DM_EVT_ERROR_SLOT_EMPTY, idx);
+        /* parked return-state is RECORDING; effective state reads RECORDING.
+         * ERROR_SLOT_EMPTY while .state == RECORDING is how a display tells a
+         * failed chain apart from the other empty-slot cases. */
         enter_typing(m, DM_STATE_RECORDING);
+        notify(m, DM_EVT_ERROR_SLOT_EMPTY, idx, -1);
         speak(m, DM_FB_CHAIN_EMPTY, idx, -1, false);
         return DM_REJECTED_EMPTY; /* returns to RECORDING */
     }
     dm_result rc = m->cb->store_draft_chain(m->cb->ctx, idx);
     if (rc == DM_REJECTED_FULL) {
         enter_typing(m, DM_STATE_RECORDING);
+        notify(m, DM_EVT_ERROR_CHAIN_FULL, idx, -1);
         speak(m, DM_FB_CHAIN_NO_ROOM, idx, -1, false);
         return DM_REJECTED_FULL; /* returns to RECORDING */
     }
     enter_typing(m, DM_STATE_RECORDING);
+    notify(m, DM_EVT_CHAIN_INSERTED, idx, -1);
     speak(m, DM_FB_CHAIN_INSERT, idx, -1, true);
     return DM_OK; /* returns to RECORDING */
 }
@@ -224,21 +253,26 @@ static dm_result slot_assign(dm_machine *m, int idx) {
     cancel_timeout(m);
     if (!slot_empty(m, idx)) {
         /* preserved pending state: press another slot, or let the timeout fire.
-         * typing_finished restores PENDING_ASSIGN and re-arms its timeout. */
+         * typing_finished restores PENDING_ASSIGN and re-arms its timeout. The
+         * display disambiguates ERROR_SLOT_OCCUPIED while .state == ASSIGN_PENDING
+         * as a rejected assign target. */
         enter_typing(m, DM_STATE_PENDING_ASSIGN);
+        notify(m, DM_EVT_ERROR_SLOT_OCCUPIED, idx, -1);
         speak(m, DM_FB_SLOT_FULL, idx, -1, false);
         return DM_REJECTED_OCCUPIED;
     }
     dm_result rc = m->cb->store_draft_commit(m->cb->ctx, idx);
     if (rc != DM_OK) {
         enter_typing(m, DM_STATE_PENDING_ASSIGN);
+        notify(m, DM_EVT_ERROR_SLOT_OCCUPIED, idx, -1);
         speak(m, DM_FB_SLOT_FULL, idx, -1, false);
         return rc;
     }
-    /* state settles before the SAVED feedback types; persist fires at finish. */
+    /* state settles before the SAVED feedback types; persist fires at finish.
+     * notify is kept before speak (effective state already reads IDLE). */
     m->post_save_slot = idx;
     enter_typing(m, DM_STATE_IDLE);
-    notify(m, DM_EVT_SAVED, idx);
+    notify(m, DM_EVT_SAVED, idx, -1);
     speak(m, DM_FB_SAVED, idx, -1, true);
     return DM_OK;
 }
@@ -248,7 +282,7 @@ static dm_result slot_delete(dm_machine *m, int idx) {
     cancel_timeout(m);
     if (slot_empty(m, idx)) {
         enter_typing(m, DM_STATE_IDLE);
-        notify(m, DM_EVT_ERROR_SLOT_EMPTY, idx);
+        notify(m, DM_EVT_ERROR_SLOT_EMPTY, idx, -1);
         speak(m, DM_FB_SLOT_EMPTY, idx, -1, false);
         return DM_REJECTED_EMPTY;
     }
@@ -259,7 +293,7 @@ static dm_result slot_delete(dm_machine *m, int idx) {
     enter_typing(m, DM_STATE_IDLE);
     dm_result rc = m->cb->store_delete(m->cb->ctx, idx);
     if (rc == DM_DELETE_QUEUE_FULL) {
-        notify(m, DM_EVT_ERROR_QUEUE_FULL, idx);
+        notify(m, DM_EVT_ERROR_DELETE_QUEUE_FULL, idx, -1);
         speak(m, DM_FB_DELETE_QFULL, idx, -1, false);
         return rc;
     }
@@ -275,7 +309,7 @@ static dm_result slot_delete(dm_machine *m, int idx) {
     }
     /* RAM delete: completed synchronously (the store zeroed the slot), so speak
      * the confirmation now. */
-    notify(m, DM_EVT_DELETED, idx);
+    notify(m, DM_EVT_DELETED, idx, -1);
     speak(m, DM_FB_DELETED, idx, -1, false);
     return DM_OK;
 }
@@ -284,9 +318,10 @@ static dm_result slot_delete(dm_machine *m, int idx) {
 static dm_result slot_move(dm_machine *m, int idx) {
     if (m->move_source_slot < 0) {
         if (slot_empty(m, idx)) {
-            /* returns to MOVE_PENDING; typing_finished re-arms the prompt timeout */
+            /* returns to MOVE_PENDING; typing_finished re-arms the prompt timeout.
+             * ERROR_SLOT_EMPTY while .state == MOVE_PENDING is an empty move source. */
             enter_typing(m, DM_STATE_MOVE_PENDING);
-            notify(m, DM_EVT_ERROR_SLOT_EMPTY, idx);
+            notify(m, DM_EVT_ERROR_SLOT_EMPTY, idx, -1);
             speak(m, DM_FB_SLOT_EMPTY, idx, -1, false);
             return DM_REJECTED_EMPTY;
         }
@@ -295,6 +330,7 @@ static dm_result slot_move(dm_machine *m, int idx) {
          * timeout keeps running — typing_finished re-arms it on return, leaving
          * the existing timeout in place.) */
         enter_typing(m, DM_STATE_MOVE_PENDING);
+        notify(m, DM_EVT_MOVE_SRC_SELECTED, idx, -1);
         speak(m, DM_FB_MOVE_SRC, idx, -1, false);
         return DM_OK;
     }
@@ -307,12 +343,14 @@ static dm_result slot_move(dm_machine *m, int idx) {
         m->move_source_slot = -1;
         cancel_timeout(m);
         enter_typing(m, DM_STATE_IDLE);
+        notify(m, DM_EVT_MOVE_CANCELLED, -1, -1);
         speak(m, DM_FB_MOVE_CANCEL, -1, -1, false);
         return DM_OK;
     }
 
     if (!slot_empty(m, dst)) {
         enter_typing(m, DM_STATE_MOVE_PENDING); /* returns to MOVE_PENDING */
+        notify(m, DM_EVT_ERROR_SLOT_OCCUPIED, dst, -1);
         speak(m, DM_FB_SLOT_FULL, dst, -1, false);
         return DM_REJECTED_OCCUPIED;
     }
@@ -326,16 +364,17 @@ static dm_result slot_move(dm_machine *m, int idx) {
 
     dm_result rc = m->cb->store_move(m->cb->ctx, src, dst);
     if (rc == DM_SAVE_QUEUE_FULL) {
-        notify(m, DM_EVT_ERROR_QUEUE_FULL, dst);
+        notify(m, DM_EVT_ERROR_SAVE_QUEUE_FULL, dst, -1);
         speak(m, DM_FB_SAVE_QFULL, dst, -1, false);
         return rc;
     }
     if (rc == DM_DELETE_QUEUE_FULL) {
-        notify(m, DM_EVT_ERROR_QUEUE_FULL, src);
+        notify(m, DM_EVT_ERROR_DELETE_QUEUE_FULL, src, -1);
         speak(m, DM_FB_DELETE_QFULL, src, -1, false);
         return rc;
     }
-    notify(m, DM_EVT_MOVED, dst);
+    /* MOVED reports slot = dst, slot2 = src. */
+    notify(m, DM_EVT_MOVED, dst, src);
     speak(m, DM_FB_MOVED, src, dst, false);
     return DM_OK;
 }
@@ -348,7 +387,7 @@ static dm_result slot_preview(dm_machine *m, int idx) {
      * inline — the machine owns the no-type case directly, with no phantom speak
      * that does not speak. */
     enter_typing(m, DM_STATE_IDLE);
-    notify(m, DM_EVT_PREVIEW_READY, idx);
+    notify(m, DM_EVT_PREVIEW_READY, idx, -1);
     dm_machine_typing_finished(m);
     return DM_OK;
 }
@@ -362,14 +401,14 @@ static dm_result slot_play(dm_machine *m, int idx) {
          * PREVIOUS transition parked (e.g. a long-settled PENDING_ASSIGN from a
          * rejected assign), silently resurrecting that state and re-arming its
          * timeout — swallowing the next play as an assign. */
-        notify(m, DM_EVT_ERROR_SLOT_EMPTY, idx);
         enter_typing(m, DM_STATE_IDLE);
+        notify(m, DM_EVT_ERROR_SLOT_EMPTY, idx, -1);
         speak(m, DM_FB_SLOT_EMPTY, idx, -1, false);
         return DM_REJECTED_EMPTY;
     }
     m->state = DM_STATE_PLAYING;
     m->cb->store_mark_playing(m->cb->ctx, idx);
-    notify(m, DM_EVT_PLAY_STARTED, idx);
+    notify(m, DM_EVT_PLAY_STARTED, idx, -1);
     return DM_OK;
 }
 
@@ -435,8 +474,8 @@ void dm_machine_typing_finished(dm_machine *m) {
             /* the deferred assign-persist enqueue was refused: the macro will not
              * survive a reboot. Speak it from the settled state (a fresh feedback
              * typing), parking the current state as the return-state. */
-            notify(m, DM_EVT_ERROR_QUEUE_FULL, persist_slot);
             enter_typing(m, m->state);
+            notify(m, DM_EVT_ERROR_SAVE_QUEUE_FULL, persist_slot, -1);
             speak(m, DM_FB_SAVE_QFULL, persist_slot, -1, false);
         }
     }
@@ -460,8 +499,8 @@ void dm_machine_deliver_async(dm_machine *m, dm_result outcome, int slot) {
     /* Park the IDLE return-state and enter TYPING_FEEDBACK before speaking, so the
      * machine reads as busy while the deferred message types and settles back to
      * IDLE on typing_finished — exactly as a synchronous transition does. */
-    notify(m, notify_evt, slot);
     enter_typing(m, DM_STATE_IDLE);
+    notify(m, notify_evt, slot, -1);
     speak(m, kind, slot, -1, false);
 }
 
@@ -506,6 +545,7 @@ void dm_machine_timeout(dm_machine *m) {
     }
     m->move_source_slot = -1;
     m->state = DM_STATE_IDLE;
+    notify(m, DM_EVT_PENDING_CANCELLED, -1, -1);
 }
 
 void dm_machine_play_finished(dm_machine *m) {

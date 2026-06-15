@@ -12,8 +12,8 @@
  * here.
  *
  * The dual-write ORDERING lives in slot_store; dm_nvs only serializes and reports
- * outcomes. A delete/save completion is delivered on the SYSTEM work queue (§3):
- * the storage thread finishes the settings op and submits one completion that
+ * outcomes. A delete/save completion is delivered on the SYSTEM work queue: the
+ * storage thread finishes the settings op and submits one completion that
  * runs slot_store_complete_delete + dm_machine_deliver_async back-to-back, so the
  * storage thread never touches slot state.
  *

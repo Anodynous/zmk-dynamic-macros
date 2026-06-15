@@ -70,7 +70,14 @@ Two test layers run in CI:
 |------|-----------|
 | `record_play_events` | Notification stream for record/assign/play |
 | `rec_stop_empty` | Empty recording discarded; `ERROR_NO_RECORDING` fires |
-| `nvs_delete_events` | NVS delete raises `DELETED` exactly once, deferred to completion |
+| `nvs_delete_events` | NVS delete raises `DELETED` exactly once, deferred to completion; `DELETE_PROMPT` on mode entry |
+| `move_events` | Move full flow: `MOVE_PROMPT` → `MOVE_SRC_SELECTED` (slot=src) → `MOVED` (slot=dst, slot2=src) |
+| `move_cancel_events` | Same-slot re-press cancels: prompt → source → `MOVE_CANCELLED` |
+| `move_occupied_events` | Occupied destination → `ERROR_SLOT_OCCUPIED`, stays `MOVE_PENDING` |
+| `assign_occupied_events` | Occupied assign target → `ERROR_SLOT_OCCUPIED`, stays `ASSIGN_PENDING` |
+| `chain_events` | Chaining a slot while recording → `CHAIN_INSERTED` (stays `RECORDING`) |
+| `preview_events` | `PREVIEW_PROMPT` on mode entry → `PREVIEW_READY` (slot) |
+| `pending_timeout_events` | A pending mode timing out → `PENDING_CANCELLED` (→ idle) |
 
 ## Running Tests
 

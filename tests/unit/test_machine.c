@@ -40,7 +40,7 @@ struct fake {
     int last_persist_slot;
     int last_saved_slot;
     int last_moved_src, last_moved_dst;
-    int last_notify_event, last_notify_slot;
+    int last_notify_event, last_notify_slot, last_notify_slot2;
 
     /* recorded knob commands (apply_knob) */
     dm_command last_knob_cmd;
@@ -187,10 +187,11 @@ static void fake_apply_knob(void *c, dm_command cmd) {
     }
 }
 
-static void cb_notify(void *c, int e, int s) {
+static void cb_notify(void *c, int e, int s, int s2) {
     (void)c;
     g->last_notify_event = e;
     g->last_notify_slot = s;
+    g->last_notify_slot2 = s2;
     log_tag("notify");
 }
 
@@ -292,24 +293,23 @@ static void goto_state(dm_state want) {
 
 /* ---- exhaustive legality sweep: every (state, command) cell ----------------
  *
- * The design doc (§2.2) claims the legality[state][command] matrix is
- * "exhaustively testable (9 states x 13 commands), every cell a known verdict".
- * The hand-picked cell tests below prove representative cells; this sweep proves
- * ALL of them, so a single stray flipped cell (exactly the class of the
- * REC-from-PREVIEW_PENDING defect caught at the pre-cut-over review) is caught
- * mechanically.
+ * The legality[state][command] matrix is exhaustively testable (9 states x 13
+ * commands, every cell a known verdict). The hand-picked cell tests below prove
+ * representative cells; this sweep proves ALL of them, so a single stray flipped
+ * cell (exactly the class of bug where REC was wrongly dropped from
+ * PREVIEW_PENDING) is caught mechanically.
  *
  * The expected table here is derived INDEPENDENTLY from the prose rules — it is
  * NOT a copy of the production `legality[][]` (that would be tautological). The
- * rules, verbatim from §2.2 / the matrix comment:
+ * rules:
  *   - REC: restarts recording from IDLE, RECORDING, PENDING_ASSIGN, PREVIEW_PENDING.
  *   - STP: only in RECORDING.
  *   - DEL / MOV / STATE / PREVIEW / the four knobs / TEST_RELOAD: IDLE-only.
  *
  * One documented exception to the effect-witness: TEST_RELOAD is matrix-ALLOWED
- * in IDLE (so the gate passes it to the shell, which performs the reload — §2.4)
- * but the MACHINE handler returns DM_OK with no transition ("dispatched by
- * dm_nvs, not a transition", dm_machine.c). It is therefore the lone ALLOWED cell
+ * in IDLE (so the gate passes it to the shell, which performs the reload) but the
+ * MACHINE handler returns DM_OK with no transition ("dispatched by dm_nvs, not a
+ * transition", dm_machine.c). It is therefore the lone ALLOWED cell
  * that produces no machine-side observable, so the effect-witness can't see it;
  * the sweep skips the effect check for exactly that cell and asserts its
  * gate-passes-through verdict separately below.
@@ -377,8 +377,8 @@ ZTEST(dm_machine, legality_matrix_every_cell) {
 }
 
 /* The cell the sweep deliberately skips: TEST_RELOAD is matrix-ALLOWED in IDLE
- * (the gate passes it to the shell, which performs the reload — §2.4) yet the
- * machine handler returns DM_OK with no transition. Its observable contract is
+ * (the gate passes it to the shell, which performs the reload) yet the machine
+ * handler returns DM_OK with no transition. Its observable contract is
  * therefore "never a machine-side effect, in ANY state": IDLE passes the gate to
  * a no-op handler; non-IDLE is dropped by the gate. Both return DM_OK with no
  * state change and no callback, which is exactly what this pins — so the reload
@@ -507,15 +507,15 @@ ZTEST(dm_machine, assign_persist_queue_full_surfaces) {
     goto_state(DM_STATE_PENDING_ASSIGN);
     fx.log_n = 0;
     /* the deferred assign-persist enqueue is refused: the machine must NOT drop it
-     * silently — it speaks SAVE QUEUE FULL and raises ERROR_QUEUE_FULL, naming the
-     * slot, from the settled state. */
+     * silently — it speaks SAVE QUEUE FULL and raises ERROR_SAVE_QUEUE_FULL, naming
+     * the slot, from the settled state. */
     fx.persist_rc = DM_SAVE_QUEUE_FULL;
     dm_result rc = cmd(DM_CMD_SLOT, RAM0);
     zassert_equal(rc, DM_OK, NULL); /* the assign itself committed */
     zassert_true(log_has("persist"), NULL);
     zassert_true(log_has("save_qfull"), NULL);
-    /* the ERROR_QUEUE_FULL notification fired for the slot */
-    zassert_equal(fx.last_notify_event, DM_EVT_ERROR_QUEUE_FULL, NULL);
+    /* the ERROR_SAVE_QUEUE_FULL notification fired for the slot */
+    zassert_equal(fx.last_notify_event, DM_EVT_ERROR_SAVE_QUEUE_FULL, NULL);
     zassert_equal(fx.last_notify_slot, RAM0, NULL);
     zassert_equal(dm_machine_state(&fx.m), DM_STATE_IDLE, NULL);
 }
@@ -956,4 +956,206 @@ ZTEST(dm_machine, knob_ignored_outside_idle_does_not_apply) {
     zassert_equal(rc, DM_OK, NULL); /* IGNORED */
     zassert_equal(fx.knob_calls, 0, NULL); /* apply_knob never reached */
     zassert_equal(dm_machine_state(&fx.m), DM_STATE_RECORDING, NULL);
+}
+
+/* ---- effective state: reads through TYPING_* to the parked return-state ----- */
+
+ZTEST(dm_machine, effective_state_reads_through_typing_feedback) {
+    setup();
+    /* a speak transition parks RECORDING and enters TYPING_FEEDBACK; the live
+     * state is TYPING_FEEDBACK but the effective state is the parked RECORDING. */
+    fx.suppress_auto_finish = true;
+    cmd(DM_CMD_REC, 0);
+    zassert_equal(dm_machine_state(&fx.m), DM_STATE_TYPING_FEEDBACK, NULL);
+    zassert_equal(dm_machine_effective_state(&fx.m), DM_STATE_RECORDING, NULL);
+    fx.suppress_auto_finish = false;
+}
+
+ZTEST(dm_machine, effective_state_reads_through_typing_erase) {
+    setup();
+    occupy(RAM0);
+    cmd(DM_CMD_SLOT, RAM0); /* IDLE -> PLAYING */
+    dm_machine_erase_due(&fx.m); /* parks PLAYING, writes TYPING_ERASE */
+    zassert_equal(dm_machine_state(&fx.m), DM_STATE_TYPING_ERASE, NULL);
+    zassert_equal(dm_machine_effective_state(&fx.m), DM_STATE_PLAYING, NULL);
+}
+
+ZTEST(dm_machine, effective_state_is_live_when_settled) {
+    setup();
+    zassert_equal(dm_machine_effective_state(&fx.m), DM_STATE_IDLE, NULL);
+    goto_state(DM_STATE_DELETE_PENDING);
+    zassert_equal(dm_machine_effective_state(&fx.m), DM_STATE_DELETE_PENDING, NULL);
+}
+
+/* ---- new notify payloads + post-write effective state --------------------- */
+
+/* With the auto-finish suppressed the machine stays in its typing/pending state,
+ * so the effective state read at notify time is the mode the transition settles
+ * into — the value a widget's event.state carries. */
+
+ZTEST(dm_machine, delete_prompt_notifies_with_delete_pending_state) {
+    setup();
+    fx.log_n = 0;
+    cmd(DM_CMD_DEL, 0);
+    zassert_equal(fx.last_notify_event, DM_EVT_DELETE_PROMPT, NULL);
+    zassert_equal(fx.last_notify_slot, -1, NULL);
+    /* delete mode has no cue, so the live state is the pending state */
+    zassert_equal(dm_machine_effective_state(&fx.m), DM_STATE_DELETE_PENDING, NULL);
+}
+
+ZTEST(dm_machine, preview_prompt_notifies_with_preview_pending_state) {
+    setup();
+    fx.log_n = 0;
+    cmd(DM_CMD_PREVIEW, 0);
+    zassert_equal(fx.last_notify_event, DM_EVT_PREVIEW_PROMPT, NULL);
+    zassert_equal(dm_machine_effective_state(&fx.m), DM_STATE_PREVIEW_PENDING, NULL);
+}
+
+ZTEST(dm_machine, move_prompt_notifies_move_pending) {
+    setup();
+    fx.suppress_auto_finish = true;
+    fx.log_n = 0;
+    cmd(DM_CMD_MOV, 0);
+    zassert_equal(fx.last_notify_event, DM_EVT_MOVE_PROMPT, NULL);
+    /* parked MOVE_PENDING while the prompt cue types */
+    zassert_equal(dm_machine_effective_state(&fx.m), DM_STATE_MOVE_PENDING, NULL);
+    fx.suppress_auto_finish = false;
+}
+
+ZTEST(dm_machine, move_src_selected_notifies_with_source_slot) {
+    setup();
+    goto_state(DM_STATE_MOVE_PENDING);
+    occupy(RAM0);
+    fx.log_n = 0;
+    cmd(DM_CMD_SLOT, RAM0);
+    zassert_equal(fx.last_notify_event, DM_EVT_MOVE_SRC_SELECTED, NULL);
+    zassert_equal(fx.last_notify_slot, RAM0, NULL);
+    zassert_equal(fx.last_notify_slot2, -1, NULL);
+}
+
+ZTEST(dm_machine, moved_notifies_dst_and_src_via_slot2) {
+    setup();
+    goto_state(DM_STATE_MOVE_PENDING);
+    occupy(RAM0);
+    cmd(DM_CMD_SLOT, RAM0); /* source */
+    fx.log_n = 0;
+    fx.move_rc = DM_OK;
+    cmd(DM_CMD_SLOT, RAM0 + 1); /* dest */
+    /* MOVED: slot = dst, slot2 = src */
+    zassert_equal(fx.last_notify_event, DM_EVT_MOVED, NULL);
+    zassert_equal(fx.last_notify_slot, RAM0 + 1, NULL);
+    zassert_equal(fx.last_notify_slot2, RAM0, NULL);
+}
+
+ZTEST(dm_machine, move_cancel_notifies_cancelled) {
+    setup();
+    goto_state(DM_STATE_MOVE_PENDING);
+    occupy(RAM0);
+    cmd(DM_CMD_SLOT, RAM0);
+    fx.log_n = 0;
+    cmd(DM_CMD_SLOT, RAM0); /* same slot -> cancel */
+    zassert_equal(fx.last_notify_event, DM_EVT_MOVE_CANCELLED, NULL);
+}
+
+ZTEST(dm_machine, move_dst_occupied_notifies_occupied_stays_pending) {
+    setup();
+    goto_state(DM_STATE_MOVE_PENDING);
+    occupy(RAM0);
+    cmd(DM_CMD_SLOT, RAM0); /* source */
+    occupy(RAM0 + 1);
+    fx.suppress_auto_finish = true;
+    fx.log_n = 0;
+    dm_result rc = cmd(DM_CMD_SLOT, RAM0 + 1); /* occupied dest */
+    zassert_equal(rc, DM_REJECTED_OCCUPIED, NULL);
+    zassert_equal(fx.last_notify_event, DM_EVT_ERROR_SLOT_OCCUPIED, NULL);
+    zassert_equal(fx.last_notify_slot, RAM0 + 1, NULL);
+    zassert_equal(dm_machine_effective_state(&fx.m), DM_STATE_MOVE_PENDING, NULL);
+    fx.suppress_auto_finish = false;
+}
+
+ZTEST(dm_machine, assign_occupied_notifies_occupied) {
+    setup();
+    goto_state(DM_STATE_PENDING_ASSIGN);
+    occupy(RAM0);
+    fx.suppress_auto_finish = true;
+    fx.log_n = 0;
+    dm_result rc = cmd(DM_CMD_SLOT, RAM0);
+    zassert_equal(rc, DM_REJECTED_OCCUPIED, NULL);
+    zassert_equal(fx.last_notify_event, DM_EVT_ERROR_SLOT_OCCUPIED, NULL);
+    zassert_equal(dm_machine_effective_state(&fx.m), DM_STATE_PENDING_ASSIGN, NULL);
+    fx.suppress_auto_finish = false;
+}
+
+ZTEST(dm_machine, chain_ok_notifies_chain_inserted) {
+    setup();
+    goto_state(DM_STATE_RECORDING);
+    occupy(RAM0);
+    fx.chain_rc = DM_OK;
+    fx.log_n = 0;
+    cmd(DM_CMD_SLOT, RAM0);
+    zassert_equal(fx.last_notify_event, DM_EVT_CHAIN_INSERTED, NULL);
+    zassert_equal(fx.last_notify_slot, RAM0, NULL);
+}
+
+ZTEST(dm_machine, chain_full_notifies_chain_full) {
+    setup();
+    goto_state(DM_STATE_RECORDING);
+    occupy(RAM0);
+    fx.chain_rc = DM_REJECTED_FULL;
+    fx.log_n = 0;
+    cmd(DM_CMD_SLOT, RAM0);
+    zassert_equal(fx.last_notify_event, DM_EVT_ERROR_CHAIN_FULL, NULL);
+    zassert_equal(fx.last_notify_slot, RAM0, NULL);
+}
+
+ZTEST(dm_machine, settings_change_notifies_settings_changed) {
+    setup();
+    fx.log_n = 0;
+    cmd(DM_CMD_STYLE_TOGGLE, 0);
+    zassert_equal(fx.last_notify_event, DM_EVT_SETTINGS_CHANGED, NULL);
+    zassert_equal(fx.last_notify_slot, -1, NULL);
+}
+
+ZTEST(dm_machine, timeout_notifies_pending_cancelled) {
+    setup();
+    goto_state(DM_STATE_PENDING_ASSIGN);
+    fx.log_n = 0;
+    dm_machine_timeout(&fx.m);
+    zassert_equal(fx.last_notify_event, DM_EVT_PENDING_CANCELLED, NULL);
+    zassert_equal(dm_machine_state(&fx.m), DM_STATE_IDLE, NULL);
+}
+
+ZTEST(dm_machine, move_dst_queue_full_splits_save_vs_delete) {
+    /* save-queue-full names dst */
+    setup();
+    goto_state(DM_STATE_MOVE_PENDING);
+    occupy(RAM0);
+    cmd(DM_CMD_SLOT, RAM0);
+    fx.move_rc = DM_SAVE_QUEUE_FULL;
+    fx.log_n = 0;
+    cmd(DM_CMD_SLOT, RAM0 + 1);
+    zassert_equal(fx.last_notify_event, DM_EVT_ERROR_SAVE_QUEUE_FULL, NULL);
+    zassert_equal(fx.last_notify_slot, RAM0 + 1, NULL);
+
+    /* delete-queue-full names src */
+    setup();
+    goto_state(DM_STATE_MOVE_PENDING);
+    occupy(RAM0);
+    cmd(DM_CMD_SLOT, RAM0);
+    fx.move_rc = DM_DELETE_QUEUE_FULL;
+    fx.log_n = 0;
+    cmd(DM_CMD_SLOT, RAM0 + 1);
+    zassert_equal(fx.last_notify_event, DM_EVT_ERROR_DELETE_QUEUE_FULL, NULL);
+    zassert_equal(fx.last_notify_slot, RAM0, NULL);
+}
+
+ZTEST(dm_machine, delete_queue_full_notifies_delete_queue_full) {
+    setup();
+    goto_state(DM_STATE_DELETE_PENDING);
+    occupy(RAM0);
+    fx.delete_rc = DM_DELETE_QUEUE_FULL;
+    fx.log_n = 0;
+    cmd(DM_CMD_SLOT, RAM0);
+    zassert_equal(fx.last_notify_event, DM_EVT_ERROR_DELETE_QUEUE_FULL, NULL);
+    zassert_equal(fx.last_notify_slot, RAM0, NULL);
 }

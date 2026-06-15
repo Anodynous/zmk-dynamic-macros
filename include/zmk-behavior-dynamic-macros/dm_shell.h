@@ -88,13 +88,14 @@ struct dm_inst *dm_shell_instance(void); /* dm_devices[0]->data, or NULL */
 #if IS_ENABLED(CONFIG_ZMK_BEHAVIOR_DYNAMIC_MACRO_EVENTS)
 /*
  * Raise zmk_dynamic_macro_state_changed for a machine notify event code
- * (DM_EVT_* in dm_machine.c). Maps the machine's code to the widget event enum
- * and derives the coarse RECORDING/PLAYING/IDLE state from the machine. The
- * machine calls this through the notify vtable slot BEFORE feedback speaks, so
- * notifications fire at every feedback level. PLAY_FINISHED is raised by the
- * playback emitter directly, not the machine.
+ * (DM_EVT_* in dm_notify.h). Maps the machine's code to the widget event enum and
+ * derives the effective (settled/destination) state from the machine. The machine
+ * calls this through the notify vtable slot AFTER the single state write, so the
+ * event reports the mode the machine settled into and fires at every feedback
+ * level. slot2 is the secondary slot for two-slot ops (MOVED), else -1.
+ * PLAY_FINISHED is raised by the playback emitter directly, not the machine.
  */
-void dm_events_raise(struct dm_inst *inst, int machine_event, int slot);
+void dm_events_raise(struct dm_inst *inst, int machine_event, int slot, int slot2);
 #endif
 
 #endif /* DM_SHELL_H */

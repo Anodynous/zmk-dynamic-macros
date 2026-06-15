@@ -284,7 +284,7 @@ static void playback_finish(struct dm_inst *inst) {
      * field is derived from the machine, so the widget sees IDLE. */
     dm_machine_play_finished(&inst->machine);
 #if IS_ENABLED(CONFIG_ZMK_BEHAVIOR_DYNAMIC_MACRO_EVENTS)
-    dm_events_raise(inst, DM_EVT_PLAY_FINISHED, slot);
+    dm_events_raise(inst, DM_EVT_PLAY_FINISHED, slot, -1);
 #endif
 }
 
@@ -400,12 +400,12 @@ static void cb_store_mark_playing(void *ctx, int idx) {
 }
 
 #if IS_ENABLED(CONFIG_ZMK_BEHAVIOR_DYNAMIC_MACRO_EVENTS)
-static void cb_notify(void *ctx, int event, int slot) {
-    dm_events_raise(ctx, event, slot);
+static void cb_notify(void *ctx, int event, int slot, int slot2) {
+    dm_events_raise(ctx, event, slot, slot2);
 }
 #else
-static void cb_notify(void *ctx, int event, int slot) {
-    (void)ctx; (void)event; (void)slot;
+static void cb_notify(void *ctx, int event, int slot, int slot2) {
+    (void)ctx; (void)event; (void)slot; (void)slot2;
 }
 #endif
 

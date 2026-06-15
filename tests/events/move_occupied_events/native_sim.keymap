@@ -1,0 +1,69 @@
+#include <dt-bindings/zmk/keys.h>
+#include <behaviors.dtsi>
+#include <dt-bindings/zmk/kscan_mock.h>
+#include <behaviors/dynamic_macro.dtsi>
+#include <dt-bindings/zmk/dynamic_macros.h>
+
+/*
+ * Move-to-occupied event coverage: a move whose destination is already in use
+ * raises ERROR_SLOT_OCCUPIED and stays in move mode (state remains MOVE_PENDING),
+ * rather than completing or dropping to idle. Records A into slot 0 and B into
+ * slot 1, enters move mode, selects slot 0 as source, then targets the occupied
+ * slot 1.
+ *
+ * PERSIST=n forces NVS_SLOTS=0, so DM_SLOT_RAM 0/1 are machine slots 0/1.
+ * FEEDBACK_OFF so the only stream is the dm_event notifications.
+ *
+ * Key layout (4 rows x 2 cols):
+ *   (0,0)=REC        (0,1)=STP
+ *   (1,0)=RAM slot 0 (1,1)=RAM slot 1
+ *   (2,0)=A          (2,1)=B
+ *   (3,0)=MOV        (3,1)=none
+ */
+
+&kscan {
+    rows = <4>;
+    columns = <2>;
+    exit-after;
+    events = <
+        /* REC A -> assign slot 0 */
+        ZMK_MOCK_PRESS(0,0,10)
+        ZMK_MOCK_RELEASE(0,0,10)
+        ZMK_MOCK_PRESS(2,0,10)
+        ZMK_MOCK_RELEASE(2,0,10)
+        ZMK_MOCK_PRESS(0,1,10)
+        ZMK_MOCK_RELEASE(0,1,10)
+        ZMK_MOCK_PRESS(1,0,10)
+        ZMK_MOCK_RELEASE(1,0,10)
+        /* REC B -> assign slot 1 */
+        ZMK_MOCK_PRESS(0,0,10)
+        ZMK_MOCK_RELEASE(0,0,10)
+        ZMK_MOCK_PRESS(2,1,10)
+        ZMK_MOCK_RELEASE(2,1,10)
+        ZMK_MOCK_PRESS(0,1,10)
+        ZMK_MOCK_RELEASE(0,1,10)
+        ZMK_MOCK_PRESS(1,1,10)
+        ZMK_MOCK_RELEASE(1,1,10)
+        /* MOV -> select slot 0 -> target occupied slot 1 (rejected) */
+        ZMK_MOCK_PRESS(3,0,10)
+        ZMK_MOCK_RELEASE(3,0,10)
+        ZMK_MOCK_PRESS(1,0,10)
+        ZMK_MOCK_RELEASE(1,0,10)
+        ZMK_MOCK_PRESS(1,1,10)
+        ZMK_MOCK_RELEASE(1,1,10)
+    >;
+};
+
+/ {
+    keymap {
+        compatible = "zmk,keymap";
+        default_layer {
+            bindings = <
+                &dm DM_REC 0      &dm DM_STP 0
+                &dm DM_SLOT_RAM 0 &dm DM_SLOT_RAM 1
+                &kp A             &kp B
+                &dm DM_MOV 0      &none
+            >;
+        };
+    };
+};
