@@ -312,6 +312,7 @@ about **+11.7 KB flash / +11 KB RAM** — roughly 1.5% of the board's flash.
 | --- | --- | --- | --- | --: | --: |
 | **Minimal** (record/play only, RAM slots) | off | n | n | +2.9 KB | +2.8 KB |
 | **Persistent, no feedback** | off | n | y | +4.4 KB | +10.4 KB |
+| **Persistent + widgets, no feedback** | off | y | y | _next run_ | _next run_ |
 | **Feedback, no persistence** | verbose | n | n | +9.0 KB | +3.3 KB |
 | **Default** | verbose | n | y | +11.3 KB | +10.9 KB |
 | **Full** (widgets + feedback + persistence + auto-erase) | verbose | y | y | +11.5 KB | +10.9 KB |

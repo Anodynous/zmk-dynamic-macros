@@ -38,16 +38,19 @@ jobs:
           - id: 2-persist-nofeedback
             name: "feedback OFF · NVS on · events off"
             conf: tests/size/persist_nofeedback.conf
-          - id: 3-feedback-nopersist
+          - id: 3-persist-events
+            name: "feedback OFF · NVS on · events ON"
+            conf: tests/size/persist_events.conf
+          - id: 4-feedback-nopersist
             name: "feedback VERBOSE · NVS off · events off"
             conf: tests/size/feedback_nopersist.conf
-          - id: 4-default
+          - id: 5-default
             name: "feedback VERBOSE · NVS on · events off (shipping defaults)"
             conf: tests/size/default.conf
-          - id: 5-auto-erase
+          - id: 6-auto-erase
             name: "feedback VERBOSE · NVS on · events off · auto-erase"
             conf: tests/size/auto_erase.conf
-          - id: 6-full
+          - id: 7-full
             name: "feedback VERBOSE · NVS on · events ON · auto-erase"
             conf: tests/size/full.conf
     steps:
