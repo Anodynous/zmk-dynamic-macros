@@ -55,7 +55,7 @@ jobs:
             conf: tests/size/full.conf
     steps:
       - name: Checkout module
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         # default path: the repo at $GITHUB_WORKSPACE (no nesting). The west
         # workspace lives in an isolated temp dir; the module is referenced into
         # the build via ZMK_EXTRA_MODULES, NOT as a west `self` project — this is
@@ -71,7 +71,7 @@ jobs:
           echo "WS=$ws" >> "$GITHUB_ENV"
 
       - name: Cache west modules
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ${{ runner.temp }}/ws/modules/
@@ -162,7 +162,7 @@ jobs:
           echo "id=${{ matrix.id }} flash=$flash/$flash_cap ram=$ram/$ram_cap"
 
       - name: Upload size fragment
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: size-${{ matrix.id }}
           path: out/${{ matrix.id }}.tsv
@@ -172,7 +172,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Collect size fragments
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v6
         with:
           pattern: size-*
           path: frags
@@ -207,7 +207,7 @@ jobs:
           } | tee size_table.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload size table
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: firmware-size-table
           path: size_table.md
