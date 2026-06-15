@@ -310,12 +310,12 @@ about **+11.7 KB flash / +11 KB RAM** — roughly 1.5% of the board's flash.
 
 | Configuration | Feedback | EVENTS | PERSIST | Δ Flash | Δ RAM |
 | --- | --- | --- | --- | --: | --: |
-| **Minimal** (record/play only, RAM slots) | off | n | n | +2.9 KB | +2.8 KB |
-| **Persistent, no feedback** | off | n | y | +4.4 KB | +10.4 KB |
-| **Persistent + widgets, no feedback** | off | y | y | _next run_ | _next run_ |
-| **Feedback, no persistence** | verbose | n | n | +9.0 KB | +3.3 KB |
-| **Default** | verbose | n | y | +11.3 KB | +10.9 KB |
-| **Full** (widgets + feedback + persistence + auto-erase) | verbose | y | y | +11.5 KB | +10.9 KB |
+| **Minimal** (record/play only, RAM slots) | off | n | n | +3.0 KB | +2.9 KB |
+| **Persistent, no feedback** | off | n | y | +4.7 KB | +10.5 KB |
+| **Persistent + widgets, no feedback** | off | y | y | +4.9 KB | +10.5 KB |
+| **Feedback, no persistence** | verbose | n | n | +9.3 KB | +3.4 KB |
+| **Default** | verbose | n | y | +11.5 KB | +11.0 KB |
+| **Full** (widgets + feedback + persistence + auto-erase) | verbose | y | y | +11.7 KB | +11.0 KB |
 
 Baseline = ZMK firmware without the module. Your absolute firmware size will be
 larger depending on the rest of your build (other modules, keymap, BLE/display), but
