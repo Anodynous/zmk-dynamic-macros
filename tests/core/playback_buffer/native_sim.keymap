@@ -1,0 +1,38 @@
+#include "../behavior_keymap.dtsi"
+
+/*
+ * Playback buffer: a foreign key pressed DURING macro playback is buffered and
+ * drained AFTER the macro, in order — not interleaved live.
+ *
+ * Record a macro of A A A into RAM slot 0, then play it. The macro replays at
+ * TAP_DELAY (20ms/event, 6 events = ~120ms). Partway through, press foreign key B.
+ * The emitted keycode stream must be the three macro A's first, THEN the foreign B
+ * — B captured and drained, not interleaved between the A's.
+ */
+
+&kscan {
+    events = <
+        /* REC */
+        ZMK_MOCK_PRESS(0,0,10)
+        ZMK_MOCK_RELEASE(0,0,10)
+        /* A A A (recorded) */
+        ZMK_MOCK_PRESS(3,0,10)
+        ZMK_MOCK_RELEASE(3,0,10)
+        ZMK_MOCK_PRESS(3,0,10)
+        ZMK_MOCK_RELEASE(3,0,10)
+        ZMK_MOCK_PRESS(3,0,10)
+        ZMK_MOCK_RELEASE(3,0,10)
+        /* STP */
+        ZMK_MOCK_PRESS(0,1,10)
+        ZMK_MOCK_RELEASE(0,1,10)
+        /* SLOT_RAM 0 (assign) */
+        ZMK_MOCK_PRESS(1,0,10)
+        ZMK_MOCK_RELEASE(1,0,10)
+        /* SLOT_RAM 0 (play) — then, mid-playback, press foreign B */
+        ZMK_MOCK_PRESS(1,0,10)
+        ZMK_MOCK_RELEASE(1,0,40)
+        /* foreign B during playback: buffered, drained after the macro */
+        ZMK_MOCK_PRESS(3,1,10)
+        ZMK_MOCK_RELEASE(3,1,2000)
+    >;
+};

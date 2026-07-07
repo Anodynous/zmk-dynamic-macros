@@ -111,6 +111,17 @@ Slots must be empty. Delete first to overwrite.
 
 Press a non-empty **slot key** to play.
 
+#### Typing during playback
+
+If you keep typing while a macro plays, your keystrokes are **buffered** and typed
+**after** the macro finishes, in the order you pressed them — instead of interleaving
+with the macro's output and garbling the text. Because playback is faster than
+typing (`TAP_DELAY`), the buffer catches up quickly and output returns to live once
+it empties. Keys past the buffer's capacity pass through live rather than being lost.
+Disable with `CONFIG_ZMK_BEHAVIOR_DYNAMIC_MACRO_PLAYBACK_BUFFER=n` to revert to raw
+live interleave. (Pressing a dynamic-macro binding — e.g. play another macro — during
+playback still does nothing, as before; only typed keys are buffered.)
+
 ### Deleting
 
 1. Press **DEL** to enter delete mode
@@ -169,8 +180,9 @@ See [docs/keycodes.md](docs/keycodes.md) for the full binding reference includin
 | --------------------- | ------- | ------------------------------------ |
 | `MAX_EVENTS`          | 64      | Largest single macro (press+release = 2 events) |
 | `AVG_EVENTS_PER_SLOT` | 32      | Per-slot average the shared RAM pool is sized for (1-64) — see [The shared event pool](#the-shared-event-pool-ram-sizing) |
-| `TAP_DELAY`           | 30      | ms between events during playback    |
+| `TAP_DELAY`           | 20      | ms between events during playback    |
 | `ASSIGN_TIMEOUT`      | 10000   | ms before pending mode auto-cancels  |
+| `PLAYBACK_BUFFER`     | y       | Buffer keys typed during playback, drain them after (see [Typing during playback](#typing-during-playback)) |
 | `PERSIST`             | y       | Enable NVS persistence               |
 | `NVS_SLOTS`           | 8       | Persistent slots (0-16)              |
 | `RAM_SLOTS`           | 8       | Temporary slots (0-48)               |

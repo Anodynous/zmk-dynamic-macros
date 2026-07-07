@@ -23,6 +23,9 @@
 
 #include <zmk-behavior-dynamic-macros/dm_kconfig.h> /* DM_TYPING_ENABLED, MAX_SLOTS, slot_is_nvs */
 #include <zmk-behavior-dynamic-macros/dm_machine.h>
+#if PLAYBACK_BUFFER_ENABLED
+#include <zmk-behavior-dynamic-macros/dm_playback_buffer.h> /* the captured-key ring */
+#endif
 #include <zmk-behavior-dynamic-macros/slot_store.h>
 /* full slot_store layout: struct dm_inst embeds it by value (caller-owned storage) */
 #include <zmk-behavior-dynamic-macros/slot_store_priv.h>
@@ -92,6 +95,24 @@ struct dm_inst {
     uint32_t       playback_event;
     struct k_timer playback_timer;
     struct k_work  playback_work;
+
+#if PLAYBACK_BUFFER_ENABLED
+    /*
+     * Playback buffer: the user's foreign keypresses captured while a macro plays,
+     * drained after the macro at TAP_DELAY (see docs/playback-buffer-plan.md). The
+     * ring wraps the backing array; the shell is the only writer.
+     */
+    struct dm_event   playback_buf[PLAYBACK_BUF_SIZE];
+    struct dm_pb_ring playback_ring;
+    /*
+     * Keys whose PRESS was diverted live at ring overflow: their RELEASE must also
+     * go live (paired-fate rule — a captured press with a bubbled release, or vice
+     * versa, strands a modifier). Held here (usage_page<<16|keycode, 0 = free) from
+     * the bubbled press until its release arrives. Bounded by simultaneously-held
+     * keys; mirrors the interrupt feature's swallowed_release[].
+     */
+    uint32_t          bubbled_press[4];
+#endif
 };
 
 /* Single-instance resolution lives in exactly one place (the query shell),

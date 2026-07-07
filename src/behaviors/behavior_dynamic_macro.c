@@ -33,6 +33,9 @@
 #include <zmk-behavior-dynamic-macros/dm_kconfig.h>
 #include <zmk-behavior-dynamic-macros/dm_machine.h>
 #include <zmk-behavior-dynamic-macros/dm_notify.h>
+#if PLAYBACK_BUFFER_ENABLED
+#include <zmk-behavior-dynamic-macros/dm_playback_emit.h> /* capture/release/emit verdicts */
+#endif
 #include <zmk-behavior-dynamic-macros/dm_render.h>
 #include <zmk-behavior-dynamic-macros/dm_shell.h>
 #include <zmk-behavior-dynamic-macros/slot_store.h>
@@ -47,7 +50,8 @@ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 
 #if DT_HAS_COMPAT_STATUS_OKAY(DT_DRV_COMPAT)
 
-#define TAP_DELAY CONFIG_ZMK_BEHAVIOR_DYNAMIC_MACRO_TAP_DELAY
+/* Inter-event delay: the consolidated single-source constant (dm_kconfig.h). */
+#define TAP_DELAY DM_TAP_DELAY
 
 /* -------------------------------------------------------------------------- */
 /*  Build-time validation                                                     */
@@ -294,20 +298,11 @@ static void playback_finish(struct dm_inst *inst) {
 #endif
 }
 
-static void playback_work_handler(struct k_work *work) {
-    struct dm_inst *inst = CONTAINER_OF(work, struct dm_inst, playback_work);
-
-    if (inst->playback_slot < 0) {
-        k_timer_stop(&inst->playback_timer);
-        return;
-    }
-    struct dm_slot_view slot = slot_store_get(&inst->store, inst->playback_slot);
-    if (slot.events == NULL || inst->playback_event >= slot.event_count) {
-        playback_finish(inst);
-        return;
-    }
-
-    const struct dm_event *ev = &slot.events[inst->playback_event++];
+/* Raise one dm_event as our OWN output: suppress_recording is held for the nested
+ * (synchronous) dispatch so the listener treats the keystroke as playback, not a
+ * foreign key. The same primitive drives a replayed macro event AND a drained
+ * buffered key — draining a captured key is mechanically identical to replaying. */
+static void playback_raise(struct dm_inst *inst, const struct dm_event *ev) {
     struct zmk_keycode_state_changed kc = {
         .usage_page = ev->usage_page,
         .keycode = ev->keycode,
@@ -316,16 +311,57 @@ static void playback_work_handler(struct k_work *work) {
         .state = ev->pressed,
         .timestamp = k_uptime_get(),
     };
-
     inst->suppress_recording = true;
     raise_zmk_keycode_state_changed(kc);
     inst->suppress_recording = false;
+}
 
+static void playback_work_handler(struct k_work *work) {
+    struct dm_inst *inst = CONTAINER_OF(work, struct dm_inst, playback_work);
+
+    if (inst->playback_slot < 0) {
+        k_timer_stop(&inst->playback_timer);
+        return;
+    }
+    struct dm_slot_view slot = slot_store_get(&inst->store, inst->playback_slot);
+    bool macro_remain = (slot.events != NULL) && (inst->playback_event < slot.event_count);
+
+#if PLAYBACK_BUFFER_ENABLED
+    /*
+     * Decide what to emit next: a remaining macro event (priority), else a buffered
+     * foreign key, else finish. FINISH is reached only on an iteration that observes
+     * BOTH exhausted AT ENTRY — the iteration that emits the last buffered key
+     * re-arms and returns with playback_slot still >= 0, so a key (e.g. a trailing
+     * modifier release) arriving in the inter-iteration gap is still captured and
+     * drained in order rather than leaking live.
+     */
+    switch (dm_pb_emit_next(macro_remain, !dm_pb_empty(&inst->playback_ring))) {
+    case DM_PB_EMIT_MACRO:
+        playback_raise(inst, &slot.events[inst->playback_event++]);
+        break;
+    case DM_PB_EMIT_BUFFER: {
+        struct dm_event drained;
+        (void)dm_pb_pop(&inst->playback_ring, &drained); /* non-empty per the verdict */
+        playback_raise(inst, &drained);
+        break;
+    }
+    case DM_PB_EMIT_FINISH:
+        playback_finish(inst);
+        return;
+    }
+    k_timer_start(&inst->playback_timer, K_MSEC(TAP_DELAY), K_NO_WAIT);
+#else
+    if (!macro_remain) {
+        playback_finish(inst);
+        return;
+    }
+    playback_raise(inst, &slot.events[inst->playback_event++]);
     if (inst->playback_event >= slot.event_count) {
         playback_finish(inst);
     } else {
         k_timer_start(&inst->playback_timer, K_MSEC(TAP_DELAY), K_NO_WAIT);
     }
+#endif
 }
 
 static void playback_timer_handler(struct k_timer *timer) {
@@ -736,6 +772,86 @@ static int dm_event_listener(const zmk_event_t *eh) {
     }
 #endif
 
+#if PLAYBACK_BUFFER_ENABLED
+    /*
+     * Playback buffer capture. A foreign key arriving while a macro plays is held
+     * (swallowed) and drained after the macro, in order, instead of interleaving
+     * live (see docs/playback-buffer-plan.md). This sits BELOW the erase-cancel
+     * sweep on purpose: a captured key still cancels a stale auto-erase above,
+     * preserving "every foreign key cancels a pending erase"; and our own
+     * drain/playback output already returned at the suppress bubble above, so it
+     * cannot self-capture. Gated on PLAYBACK_BUFFER_ENABLED alone (playback replays
+     * keycodes independently of feedback typing).
+     *
+     * Paired-fate rule: a key is captured entirely or bubbled entirely, never split
+     * across the ring-full boundary — a captured press with a bubbled release (or
+     * vice versa) strands a modifier. Overflow diverts only a PRESS live and records
+     * it in bubbled_press[]; its release then bubbles too, and a captured press's
+     * release always force-appends (the release headroom guarantees room).
+     */
+    uint32_t pb_key = ((uint32_t)ev->usage_page << 16) | (uint16_t)ev->keycode;
+    for (size_t i = 0; i < dm_devices_len; i++) {
+        struct dm_inst *inst = dm_devices[i]->data;
+        if (inst->playback_slot < 0) {
+            continue; /* not playing on this instance: fall through to recording */
+        }
+
+        if (!ev->state) {
+            /* RELEASE: follow its press's fate. */
+            bool press_was_bubbled = false;
+            for (size_t j = 0; j < ARRAY_SIZE(inst->bubbled_press); j++) {
+                if (inst->bubbled_press[j] == pb_key) {
+                    inst->bubbled_press[j] = 0;
+                    press_was_bubbled = true;
+                    break;
+                }
+            }
+            if (dm_pb_release_fate(press_was_bubbled) == DM_PB_REL_BUBBLE) {
+                return ZMK_EV_EVENT_BUBBLE; /* its press went live: release goes live */
+            }
+            /* its press was captured: force-append the release (always fits — the
+             * release headroom). */
+            struct dm_event rel = {
+                .usage_page = ev->usage_page,
+                .keycode = (uint16_t)ev->keycode,
+                .implicit_mods = ev->implicit_modifiers,
+                .explicit_mods = ev->explicit_modifiers,
+                .pressed = 0,
+                ._reserved = 0,
+            };
+            (void)dm_pb_push(&inst->playback_ring, &rel);
+            return ZMK_EV_EVENT_HANDLED;
+        }
+
+        /* PRESS: capture verbatim (no modifier-folding — replay the raw resolved
+         * event), or overflow live and remember it for its release. */
+        switch (dm_pb_capture_verdict(true, !dm_pb_full(&inst->playback_ring))) {
+        case DM_PB_CAPTURE: {
+            struct dm_event pr = {
+                .usage_page = ev->usage_page,
+                .keycode = (uint16_t)ev->keycode,
+                .implicit_mods = ev->implicit_modifiers,
+                .explicit_mods = ev->explicit_modifiers,
+                .pressed = 1,
+                ._reserved = 0,
+            };
+            (void)dm_pb_push(&inst->playback_ring, &pr);
+            return ZMK_EV_EVENT_HANDLED;
+        }
+        case DM_PB_BUBBLE:
+            for (size_t j = 0; j < ARRAY_SIZE(inst->bubbled_press); j++) {
+                if (inst->bubbled_press[j] == 0) {
+                    inst->bubbled_press[j] = pb_key;
+                    break;
+                }
+            }
+            return ZMK_EV_EVENT_BUBBLE;
+        case DM_PB_PASS:
+            break; /* unreachable: playing is true here */
+        }
+    }
+#endif
+
     /*
      * Record the *effective* keystroke, not the raw event stream.
      *
@@ -801,6 +917,11 @@ static int behavior_dynamic_macro_init(const struct device *dev) {
     memset(inst, 0, sizeof(*inst));
     inst->dev = dev;
     inst->playback_slot = -1;
+#if PLAYBACK_BUFFER_ENABLED
+    inst->playback_ring.buf = inst->playback_buf;
+    inst->playback_ring.cap = PLAYBACK_BUF_SIZE;
+    /* head/tail and bubbled_press[] zeroed by the memset above */
+#endif
 
     const dm_nvs_sink *sink = NULL;
 #if IS_ENABLED(CONFIG_ZMK_BEHAVIOR_DYNAMIC_MACRO_PERSIST)

@@ -28,7 +28,16 @@ config ZMK_BEHAVIOR_DYNAMIC_MACRO_AVG_EVENTS_PER_SLOT
 
 config ZMK_BEHAVIOR_DYNAMIC_MACRO_TAP_DELAY
     int "Delay in ms between each event during playback"
-    default 30
+    default 20
+
+config ZMK_BEHAVIOR_DYNAMIC_MACRO_PLAYBACK_BUFFER
+    bool "Buffer user keypresses during macro playback and drain them after"
+    default y
+    help
+      While a macro plays, hold the user's own keypresses and type them after the
+      macro finishes, in order, instead of letting them interleave. The buffer
+      catches up quickly (replay is faster than typing). Keys past the buffer's
+      capacity pass through live rather than being lost.
 
 config ZMK_BEHAVIOR_DYNAMIC_MACRO_ASSIGN_TIMEOUT
     int "Timeout in ms before pending assign/delete auto-cancels"

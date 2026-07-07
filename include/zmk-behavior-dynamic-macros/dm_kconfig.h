@@ -21,6 +21,44 @@
  * otherwise) — the single source of truth, shared with the pure cores. */
 #include <zmk-behavior-dynamic-macros/dm_config.h>
 
+/* Inter-event typing delay (ms), shared by playback, feedback, and erase. The
+ * single source of truth for the constant: the shells (behavior_dynamic_macro.c,
+ * dm_feedback_pump.c) consume DM_TAP_DELAY rather than re-#defining it, and
+ * PLAYBACK_BUF_SIZE below is derived from it. Host build falls back to the firmware
+ * default so the pure ring/verdict headers compute the same size off-Zephyr. */
+#ifdef CONFIG_ZMK_BEHAVIOR_DYNAMIC_MACRO_TAP_DELAY
+#define DM_TAP_DELAY CONFIG_ZMK_BEHAVIOR_DYNAMIC_MACRO_TAP_DELAY
+#else
+#define DM_TAP_DELAY 20
+#endif
+
+/*
+ * Playback buffer: capture the user's keypresses during macro playback and drain
+ * them after (see docs/playback-buffer-plan.md). PLAYBACK_BUFFER_ENABLED gates the
+ * whole feature; when 0 the ring/branch compile out and playback reverts to live
+ * interleave.
+ *
+ * PLAYBACK_BUF_SIZE holds ONLY captured foreign keys (never the macro — that
+ * replays in place from the slot store). Peak occupancy is the user's typing
+ * accrued while a full macro replays (MAX_EVENTS x DM_TAP_DELAY ms) at the fastest
+ * sustained human rate (one event / DM_MIN_TYPING_INTERVAL_MS); since drain
+ * out-paces typing, occupancy falls after the macro->drain handoff. The
+ * +DM_PB_RELEASE_HEADROOM is force-append room so a captured key's RELEASE always
+ * fits even at the peak (the paired-fate rule — a captured press must never get a
+ * bubbled release, which would strand a modifier). Truncation of the /interval term
+ * is accepted; the bubble-live path is the safe overflow fallback.
+ */
+#ifdef CONFIG_ZMK_BEHAVIOR_DYNAMIC_MACRO_PLAYBACK_BUFFER
+#define PLAYBACK_BUFFER_ENABLED 1
+#else
+#define PLAYBACK_BUFFER_ENABLED 0
+#endif
+
+#define DM_MIN_TYPING_INTERVAL_MS 50
+#define DM_PB_RELEASE_HEADROOM    4
+#define PLAYBACK_BUF_SIZE \
+    (((MAX_EVENTS * DM_TAP_DELAY) / DM_MIN_TYPING_INTERVAL_MS) + DM_PB_RELEASE_HEADROOM)
+
 /* Feedback levels (numeric ladder; mirrors the Kconfig choice values). */
 #define DM_FEEDBACK_OFF     0
 #define DM_FEEDBACK_ERROR   1

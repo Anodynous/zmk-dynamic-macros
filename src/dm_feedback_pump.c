@@ -19,10 +19,12 @@
 
 #include <zmk-behavior-dynamic-macros/dm_feedback_interrupt.h>
 #include <zmk-behavior-dynamic-macros/dm_feedback_pump.h>
+#include <zmk-behavior-dynamic-macros/dm_kconfig.h>
 
 LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 
-#define TAP_DELAY CONFIG_ZMK_BEHAVIOR_DYNAMIC_MACRO_TAP_DELAY
+/* Inter-event delay: the consolidated single-source constant (dm_kconfig.h). */
+#define TAP_DELAY DM_TAP_DELAY
 
 /* The erase-delay Kconfig only exists when auto-erase is enabled. The erase
  * scheduler is still compiled (erase_enabled gates it at runtime, defaulting off),
