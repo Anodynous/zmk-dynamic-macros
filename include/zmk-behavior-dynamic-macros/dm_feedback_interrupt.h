@@ -29,22 +29,22 @@ extern "C" {
 /*
  * Is a feedback output currently abortable?
  *
- * True iff the pump is actively emitting (emit_active) AND that emission is NOT
- * the auto-erase backspace run (erase_in_progress) — the erase sequence has its
- * own cancel path (dm_feedback_pump_cancel_erase) and must not be aborted here.
- * This covers exactly the two interruptible operations: the status dump and
- * SAVED-with-preview, both of which set emit_active with erase_in_progress false.
+ * True iff the pump is actively emitting (emit_active), that emission is NOT the
+ * auto-erase backspace run (erase_in_progress — it has its own cancel path,
+ * dm_feedback_pump_cancel_erase), AND the current operation is one we chose to
+ * make interruptible (interruptible).
  *
- * A short cue (REC/STOP/errors/knob) is also emit_active while it types, but by
- * design we DO abort those too if this predicate alone gated it — so callers pair
- * it with the caller-context rules. In practice the two abortable operations are
- * the long ones; short cues finish faster than a human interrupt. The predicate
- * intentionally does not special-case cue vs. status: aborting a half-typed short
- * cue settles to its parked return-state exactly as a full drain would, so the
- * behavior is safe either way. (See dm_feedback_pump_cancel_output.)
+ * The interruptible flag is the crux: emit_active alone is true for EVERY cue
+ * while it types, including the short ones (REC/STOP/errors/knob). Those must NOT
+ * be abortable — a key arriving mid-cue during normal use (e.g. the next command,
+ * or recording keys right after REC) would otherwise truncate the cue. Only the
+ * two long, informational outputs are interruptible: the status dump and
+ * SAVED-with-preview. The pump sets interruptible true for exactly those and
+ * false for every short cue, so this predicate draws the line the design intends.
  */
-static inline bool dm_fb_output_abortable(bool emit_active, bool erase_in_progress) {
-    return emit_active && !erase_in_progress;
+static inline bool dm_fb_output_abortable(bool emit_active, bool erase_in_progress,
+                                          bool interruptible) {
+    return emit_active && !erase_in_progress && interruptible;
 }
 
 /*
@@ -57,11 +57,11 @@ static inline bool dm_fb_output_abortable(bool emit_active, bool erase_in_progre
  * return ZMK_EV_EVENT_HANDLED (swallow the key from the host).
  */
 static inline bool dm_fb_listener_should_abort(bool emitting_now, bool emit_active,
-                                               bool erase_in_progress) {
+                                               bool erase_in_progress, bool interruptible) {
     if (emitting_now) {
         return false;
     }
-    return dm_fb_output_abortable(emit_active, erase_in_progress);
+    return dm_fb_output_abortable(emit_active, erase_in_progress, interruptible);
 }
 
 #ifdef __cplusplus

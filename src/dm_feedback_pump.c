@@ -329,6 +329,12 @@ void dm_feedback_speak(dm_feedback *f, const dm_feedback_spec *spec) {
     f->status_mode = is_status && f->status_detail >= DM_FB_STATUS_USED && f->max_slots > 0;
     f->status_next_slot = 0;
 
+    /* Only the two long informational outputs are interruptible by a keypress:
+     * the status dump (any status output) and a SAVED cue that streams a preview.
+     * Every short cue leaves this false so a key mid-cue cannot truncate it. */
+    f->output_interruptible =
+        is_status || (f->spec.kind == DM_FB_SAVED && f->spec.show_preview);
+
     f->set_suppress(f->ctx, true);
 
     dm_fb_facts facts = gather_facts(f, &f->spec);
@@ -454,6 +460,7 @@ static void erase_work_handler(struct k_work *work) {
     f->preview_pending = false;
     f->suffix_pending = false;
     f->status_mode = false;
+    f->output_interruptible = false;
     f->erase_in_progress = true;
 
     uint16_t batch = MIN(count, (uint16_t)(DM_FB_RING_SIZE - 1));
@@ -503,7 +510,7 @@ void dm_feedback_pump_cancel_erase(dm_feedback *f) {
 bool dm_feedback_pump_cancel_output(dm_feedback *f) {
     /* Only a live status dump or SAVED-with-preview is abortable here; an
      * in-progress erase is left to cancel_erase. The pure predicate owns the rule. */
-    if (!dm_fb_output_abortable(f->emit_active, f->erase_in_progress)) {
+    if (!dm_fb_output_abortable(f->emit_active, f->erase_in_progress, f->output_interruptible)) {
         return false;
     }
 
@@ -516,6 +523,7 @@ bool dm_feedback_pump_cancel_output(dm_feedback *f) {
     f->preview_pending = false;
     f->suffix_pending = false;
     f->status_mode = false;
+    f->output_interruptible = false;
     f->have_spec = false;
     f->emit_active = false;
     f->set_suppress(f->ctx, false);

@@ -69,6 +69,12 @@ struct dm_feedback {
     bool status_mode;
     int  status_next_slot;   /* next slot to render after this line finishes */
 
+    /* True only while a status dump or a SAVED-with-preview is emitting: the two
+     * long, informational outputs a keypress may interrupt. False for every short
+     * cue (REC/STOP/errors/knob) and for the erase run, so a key mid-cue does not
+     * truncate it. Gates dm_feedback_pump_cancel_output. */
+    bool output_interruptible;
+
     /* auto-erase scheduler */
     uint16_t erase_char_count;     /* non-RET feedback chars typed this round */
     bool     erase_pending;        /* a delayed erase is scheduled */
