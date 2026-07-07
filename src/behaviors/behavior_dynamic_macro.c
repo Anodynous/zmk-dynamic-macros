@@ -683,14 +683,38 @@ static int dm_event_listener(const zmk_event_t *eh) {
      * from a foreign key — emitting_now (set only around our own raise) is the
      * discriminator. Our own emission (emitting_now) is skipped so the dump does
      * not swallow its own keystrokes.
+     *
+     * The abort fires on the PRESS; to keep the swallow symmetric we remember the
+     * keycode and also swallow its matching RELEASE, so the host never sees a lone
+     * release. Both are checked before the emitting_now / suppress gates below.
      */
+    uint32_t ev_key = ((uint32_t)ev->usage_page << 16) | (uint16_t)ev->keycode;
     for (size_t i = 0; i < dm_devices_len; i++) {
         struct dm_inst *inst = dm_devices[i]->data;
+
+        /* release of a key whose press we swallowed: swallow it too and forget it */
+        if (!ev->state) {
+            for (size_t j = 0; j < ARRAY_SIZE(inst->swallowed_release); j++) {
+                if (inst->swallowed_release[j] == ev_key) {
+                    inst->swallowed_release[j] = 0;
+                    return ZMK_EV_EVENT_HANDLED;
+                }
+            }
+            continue; /* a release never aborts an output */
+        }
+
         if (inst->emitting_now) {
             continue;
         }
         if (dm_feedback_pump_cancel_output(&inst->feedback)) {
-            return ZMK_EV_EVENT_HANDLED; /* aborted an output → swallow this key */
+            /* aborted an output → swallow this press, and owe its release too */
+            for (size_t j = 0; j < ARRAY_SIZE(inst->swallowed_release); j++) {
+                if (inst->swallowed_release[j] == 0) {
+                    inst->swallowed_release[j] = ev_key;
+                    break;
+                }
+            }
+            return ZMK_EV_EVENT_HANDLED;
         }
     }
 #endif

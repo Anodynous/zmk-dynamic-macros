@@ -62,6 +62,14 @@ struct dm_inst {
      * synchronous, so the listener runs nested inside the raise and clears before
      * it returns. */
     bool emitting_now;
+
+    /* Keycodes whose PRESS was swallowed to abort a feedback output (trigger B):
+     * their matching RELEASE must be swallowed too, or the host would see a lone
+     * release. Each held here (usage_page<<16 | keycode, 0 = free) from the
+     * swallowed press until its release arrives. A small fixed set covers the few
+     * keys that can be held across the one abort moment; a full set silently lets
+     * the overflow release bubble (a harmless lone release). */
+    uint32_t swallowed_release[4];
 #endif
     struct k_work_delayable timeout_work; /* assign/move/delete/preview timeout */
 
