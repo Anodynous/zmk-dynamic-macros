@@ -216,7 +216,7 @@ ARROW uses single punctuation marks with fixed roles: `>` success, `-` delete, `
 | Option             | Default | Description                      |
 | ------------------ | ------- | -------------------------------- |
 | `FEEDBACK_AUTO_ERASE` | n    | Delete feedback after display    |
-| `FEEDBACK_ERASE_DELAY`| 1500 | ms before erasing (500-10000)    |
+| `FEEDBACK_ERASE_DELAY`| 1000 | ms before erasing (500-10000)    |
 
 When enabled, feedback text is automatically erased by emitting backspace keycodes after the configured delay. If you type before the delay expires, the erase is cancelled. Status output is excluded (it is informational and may be long). Pairs well with ARROW style's short output.
 
