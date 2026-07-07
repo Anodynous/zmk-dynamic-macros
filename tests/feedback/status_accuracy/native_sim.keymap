@@ -6,7 +6,8 @@
 
 /* Verify STATUS count output reflects correct filled/total after each
  * record and delete operation. Uses STATUS_COUNT (header only) with
- * arrow style to keep snapshot simple: "==N/3 RAM\n" each time. */
+ * arrow style to keep snapshot simple: "==N/3 RAM" each time (single-line status,
+ * header only at COUNT detail, no trailing newline). */
 
 &kscan {
     rows = <4>;

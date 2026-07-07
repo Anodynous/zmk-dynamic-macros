@@ -143,13 +143,14 @@ Auto-cancels after `ASSIGN_TIMEOUT` ms.
 ```
 
 Types a summary of all slot contents to the focused window. The detail level
-is controlled by the `STATUS_*` Kconfig options. Multi-line for `STATUS_FULL`.
+is controlled by the `STATUS_*` Kconfig options. Output is a single line (no
+trailing newline); the header and each macro are joined by the configurable
+`STATUS_HEADER_SEP` (default `" || "`) and `STATUS_SLOT_SEP` (default `" | "`)
+separators.
 
 **Example output (FULL style, VERBOSE):**
 ```
-[DM 2/8 NVS:0-7 RAM:8-15]
-N0: 'Hello'(10)
-N1: 42
+[DM 2/8 NVS:0-7 RAM:8-15] || N0: 'Hello' (10) | N1: 42
 ```
 
 ---
@@ -245,7 +246,8 @@ this key on a DE or FR build is a no-op.
 
 Toggles the auto-erase feature on or off. When enabled, feedback text is
 automatically erased by emitting backspace keycodes after `FEEDBACK_ERASE_DELAY`
-ms. Typing before the delay expires cancels the erase. Multi-line status output
-is excluded from auto-erase. Pairs well with ARROW style's compact output.
+ms. Typing before the delay expires cancels the erase. Status output is excluded
+from auto-erase (it is informational and may be long). Pairs well with ARROW
+style's compact output.
 
 **Feedback:** `[DM FB:ERASE ON]` / `[DM FB:ERASE OFF]` (or `>FB:ERASE ON` / `>FB:ERASE OFF`)

@@ -38,21 +38,24 @@ jobs:
           - id: 2-persist-nofeedback
             name: "feedback OFF · NVS on · events off"
             conf: tests/size/persist_nofeedback.conf
-          - id: 3-feedback-nopersist
+          - id: 3-persist-events
+            name: "feedback OFF · NVS on · events ON"
+            conf: tests/size/persist_events.conf
+          - id: 4-feedback-nopersist
             name: "feedback VERBOSE · NVS off · events off"
             conf: tests/size/feedback_nopersist.conf
-          - id: 4-default
+          - id: 5-default
             name: "feedback VERBOSE · NVS on · events off (shipping defaults)"
             conf: tests/size/default.conf
-          - id: 5-auto-erase
+          - id: 6-auto-erase
             name: "feedback VERBOSE · NVS on · events off · auto-erase"
             conf: tests/size/auto_erase.conf
-          - id: 6-full
+          - id: 7-full
             name: "feedback VERBOSE · NVS on · events ON · auto-erase"
             conf: tests/size/full.conf
     steps:
       - name: Checkout module
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         # default path: the repo at $GITHUB_WORKSPACE (no nesting). The west
         # workspace lives in an isolated temp dir; the module is referenced into
         # the build via ZMK_EXTRA_MODULES, NOT as a west `self` project — this is
@@ -68,7 +71,7 @@ jobs:
           echo "WS=$ws" >> "$GITHUB_ENV"
 
       - name: Cache west modules
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ${{ runner.temp }}/ws/modules/
@@ -159,7 +162,7 @@ jobs:
           echo "id=${{ matrix.id }} flash=$flash/$flash_cap ram=$ram/$ram_cap"
 
       - name: Upload size fragment
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: size-${{ matrix.id }}
           path: out/${{ matrix.id }}.tsv
@@ -169,7 +172,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Collect size fragments
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v6
         with:
           pattern: size-*
           path: frags
@@ -204,7 +207,7 @@ jobs:
           } | tee size_table.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload size table
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: firmware-size-table
           path: size_table.md

@@ -1,0 +1,45 @@
+#include <dt-bindings/zmk/keys.h>
+#include <behaviors.dtsi>
+#include <dt-bindings/zmk/kscan_mock.h>
+#include <behaviors/dynamic_macro.dtsi>
+#include <dt-bindings/zmk/dynamic_macros.h>
+
+/*
+ * Pending-timeout event coverage: entering a pending mode and letting it expire
+ * raises PENDING_CANCELLED and drops to idle. Enters delete mode (DELETE_PROMPT)
+ * and then waits past the 500ms assign/pending timeout without confirming a slot.
+ *
+ * PERSIST=n forces NVS_SLOTS=0. FEEDBACK_OFF so the only stream is the dm_event
+ * notifications. The trailing &none press just keeps the sim running past the
+ * timeout so the timer callback fires and is logged.
+ *
+ * Key layout (2 rows x 2 cols):
+ *   (0,0)=DEL  (0,1)=none
+ *   (1,0)=none (1,1)=none
+ */
+
+&kscan {
+    rows = <2>;
+    columns = <2>;
+    exit-after;
+    events = <
+        /* DEL: enter delete mode, then wait out the 500ms timeout */
+        ZMK_MOCK_PRESS(0,0,10)
+        ZMK_MOCK_RELEASE(0,0,10)
+        /* idle key well after the timeout, so the sim runs long enough to log it */
+        ZMK_MOCK_PRESS(0,1,2000)
+        ZMK_MOCK_RELEASE(0,1,10)
+    >;
+};
+
+/ {
+    keymap {
+        compatible = "zmk,keymap";
+        default_layer {
+            bindings = <
+                &dm DM_DEL 0 &none
+                &none        &none
+            >;
+        };
+    };
+};

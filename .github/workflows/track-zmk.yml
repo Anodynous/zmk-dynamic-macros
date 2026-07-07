@@ -15,7 +15,7 @@ jobs:
     steps:
       # Check out with the PAT so the pushed branch + PR trigger CI (a PR opened
       # by the default GITHUB_TOKEN does not start workflow runs).
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           token: ${{ secrets.ZMK_ACTIONS_TOKEN }}
       - name: Open a PR if ZMK has a newer major.minor than our line

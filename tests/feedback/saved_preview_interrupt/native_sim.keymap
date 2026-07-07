@@ -1,0 +1,73 @@
+#include <dt-bindings/zmk/keys.h>
+#include <behaviors.dtsi>
+#include <dt-bindings/zmk/kscan_mock.h>
+#include <behaviors/dynamic_macro.dtsi>
+#include <dt-bindings/zmk/dynamic_macros.h>
+
+/*
+ * Interrupt (trigger A): a DM binding press during a live SAVED-with-preview
+ * dump ABORTS it — and only aborts it (the command does not also run,
+ * "abort only").
+ *
+ * At VERBOSE level a slot assign types a SAVED cue that streams the just-saved
+ * macro's preview (">R0:'cdcdcd' ..."), a long dump at TAP_DELAY=40. While it is
+ * still typing, press the DM STATE key.
+ *
+ *   Fixed:  the STATE press aborts the SAVED-preview dump
+ *           (dm_feedback_pump_cancel_output returns true, so on_keymap_binding_pressed
+ *           returns OPAQUE and skips dispatch) — the snapshot shows a PARTIAL
+ *           SAVED dump and NO status dump follows (the STATE command was dropped).
+ *   Buggy:  the SAVED dump completes AND the STATE command then runs, so the
+ *           snapshot shows the full SAVED preview followed by a STATUS dump.
+ *
+ * DM keys are OPAQUE (never emit a host keycode), so trigger A is exercised
+ * purely through the binding path, not the listener. AUTO_ERASE off; TAP_DELAY=40.
+ */
+
+&kscan {
+    rows = <4>;
+    columns = <2>;
+    exit-after;
+};
+
+/ {
+    keymap {
+        compatible = "zmk,keymap";
+        default_layer {
+            bindings = <
+                &dm DM_REC 0        &dm DM_STP 0
+                &dm DM_SLOT_RAM 0   &dm DM_STATE 0
+                &kp C               &kp D
+            >;
+        };
+    };
+};
+
+&kscan {
+    events = <
+        /* --- record "cdcdcd" into RAM slot 0 (a long preview) --- */
+        ZMK_MOCK_PRESS(0,0,10)      /* REC */
+        ZMK_MOCK_RELEASE(0,0,300)
+        ZMK_MOCK_PRESS(2,0,10)      /* C */
+        ZMK_MOCK_RELEASE(2,0,10)
+        ZMK_MOCK_PRESS(2,1,10)      /* D */
+        ZMK_MOCK_RELEASE(2,1,10)
+        ZMK_MOCK_PRESS(2,0,10)      /* C */
+        ZMK_MOCK_RELEASE(2,0,10)
+        ZMK_MOCK_PRESS(2,1,10)      /* D */
+        ZMK_MOCK_RELEASE(2,1,10)
+        ZMK_MOCK_PRESS(2,0,10)      /* C */
+        ZMK_MOCK_RELEASE(2,0,10)
+        ZMK_MOCK_PRESS(2,1,10)      /* D */
+        ZMK_MOCK_RELEASE(2,1,10)
+        ZMK_MOCK_PRESS(0,1,300)     /* STP */
+        ZMK_MOCK_RELEASE(0,1,300)
+
+        /* --- assign to RAM slot 0: VERBOSE SAVED cue streams ">R0:'cdcdcd'..." --- */
+        ZMK_MOCK_PRESS(1,0,10)      /* SLOT_RAM 0 */
+        ZMK_MOCK_RELEASE(1,0,10)
+        /* --- DM STATE deep inside the SAVED-preview dump: aborts, command dropped --- */
+        ZMK_MOCK_PRESS(1,1,500)     /* STATE */
+        ZMK_MOCK_RELEASE(1,1,2000)
+    >;
+};

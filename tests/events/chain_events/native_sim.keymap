@@ -1,0 +1,55 @@
+#include <dt-bindings/zmk/keys.h>
+#include <behaviors.dtsi>
+#include <dt-bindings/zmk/kscan_mock.h>
+#include <behaviors/dynamic_macro.dtsi>
+#include <dt-bindings/zmk/dynamic_macros.h>
+
+/*
+ * Chain-insert event coverage: pressing a non-empty slot while recording chains
+ * that slot's events into the draft and raises CHAIN_INSERTED (state stays
+ * RECORDING). Records A into slot 0, starts a fresh recording, then chains slot 0
+ * into the new draft.
+ *
+ * PERSIST=n forces NVS_SLOTS=0, so DM_SLOT_RAM 0 is machine slot 0. FEEDBACK_OFF
+ * so the only stream is the dm_event notifications.
+ *
+ * Key layout (3 rows x 2 cols):
+ *   (0,0)=REC        (0,1)=STP
+ *   (1,0)=RAM slot 0 (1,1)=RAM slot 1
+ *   (2,0)=A          (2,1)=none
+ */
+
+&kscan {
+    rows = <3>;
+    columns = <2>;
+    exit-after;
+    events = <
+        /* REC A -> assign slot 0 */
+        ZMK_MOCK_PRESS(0,0,10)
+        ZMK_MOCK_RELEASE(0,0,10)
+        ZMK_MOCK_PRESS(2,0,10)
+        ZMK_MOCK_RELEASE(2,0,10)
+        ZMK_MOCK_PRESS(0,1,10)
+        ZMK_MOCK_RELEASE(0,1,10)
+        ZMK_MOCK_PRESS(1,0,10)
+        ZMK_MOCK_RELEASE(1,0,10)
+        /* REC again, then chain slot 0 into the draft */
+        ZMK_MOCK_PRESS(0,0,10)
+        ZMK_MOCK_RELEASE(0,0,10)
+        ZMK_MOCK_PRESS(1,0,10)
+        ZMK_MOCK_RELEASE(1,0,10)
+    >;
+};
+
+/ {
+    keymap {
+        compatible = "zmk,keymap";
+        default_layer {
+            bindings = <
+                &dm DM_REC 0      &dm DM_STP 0
+                &dm DM_SLOT_RAM 0 &dm DM_SLOT_RAM 1
+                &kp A             &none
+            >;
+        };
+    };
+};

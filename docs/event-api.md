@@ -21,24 +21,41 @@ struct zmk_dynamic_macro_state_changed {
     enum zmk_dynamic_macro_state state;
     enum zmk_dynamic_macro_event_type event;
     int slot;
+    int slot2;
     bool slot_is_nvs;
+    bool slot2_is_nvs;
 };
 ```
 
-| Field        | Description                                    |
-| ------------ | ---------------------------------------------- |
-| `state`      | Current macro system state after the event     |
-| `event`      | What triggered this notification               |
-| `slot`       | Affected slot index, or -1 if not applicable   |
-| `slot_is_nvs`| True if slot is NVS, false if RAM              |
+| Field         | Description                                                      |
+| ------------- | --------------------------------------------------------------- |
+| `state`       | **Effective** macro state after the event (see below)           |
+| `event`       | What triggered this notification                                |
+| `slot`        | Primary slot index, or -1 if not applicable                     |
+| `slot2`       | Secondary slot index, or -1. Used by `MOVED` (move source)      |
+| `slot_is_nvs` | True if `slot` is NVS, false if RAM (valid when `slot >= 0`)     |
+| `slot2_is_nvs`| True if `slot2` is NVS, false if RAM (valid when `slot2 >= 0`)   |
+
+For `MOVED`, `slot` is the destination and `slot2` is the source. For
+`MOVE_SRC_SELECTED`, `slot` is the selected source and `slot2` is -1. Every other
+event sets `slot2 = -1`.
 
 ### States
 
-| State                            | Meaning                    |
-| -------------------------------- | -------------------------- |
-| `ZMK_DYNAMIC_MACRO_STATE_IDLE`   | No operation in progress   |
-| `ZMK_DYNAMIC_MACRO_STATE_RECORDING` | Currently recording     |
-| `ZMK_DYNAMIC_MACRO_STATE_PLAYING`   | Playing back a macro    |
+`state` is the *effective* mode — the mode the machine has settled into (or is
+settling into once its feedback finishes typing), never the transient internal
+typing state. `dm_get_state()` reports the same value, so polling and events
+always agree.
+
+| State                                       | Meaning                              |
+| ------------------------------------------- | ------------------------------------ |
+| `ZMK_DYNAMIC_MACRO_STATE_IDLE`              | No operation in progress             |
+| `ZMK_DYNAMIC_MACRO_STATE_RECORDING`         | Currently recording                  |
+| `ZMK_DYNAMIC_MACRO_STATE_PLAYING`           | Playing back a macro                 |
+| `ZMK_DYNAMIC_MACRO_STATE_ASSIGN_PENDING`    | Recording stopped, awaiting a slot   |
+| `ZMK_DYNAMIC_MACRO_STATE_MOVE_PENDING`      | Move mode: awaiting source or dest   |
+| `ZMK_DYNAMIC_MACRO_STATE_DELETE_PENDING`    | Delete mode: awaiting a slot         |
+| `ZMK_DYNAMIC_MACRO_STATE_PREVIEW_PENDING`   | Preview mode: awaiting a slot        |
 
 ### Event Types
 
@@ -50,21 +67,48 @@ struct zmk_dynamic_macro_state_changed {
 | `ZMK_DYNAMIC_MACRO_RECORDING_STOPPED` | Recording stopped (before save)    |
 | `ZMK_DYNAMIC_MACRO_SAVED`             | Macro saved to slot                |
 | `ZMK_DYNAMIC_MACRO_DELETED`           | Slot cleared                       |
-| `ZMK_DYNAMIC_MACRO_MOVED`             | Macro moved between slots          |
+| `ZMK_DYNAMIC_MACRO_MOVED`             | Macro moved (`slot`=dst, `slot2`=src) |
 | `ZMK_DYNAMIC_MACRO_PLAY_STARTED`      | Playback began                     |
 | `ZMK_DYNAMIC_MACRO_PLAY_FINISHED`     | Playback completed                 |
 | `ZMK_DYNAMIC_MACRO_PREVIEW_READY`     | Preview data available for query   |
 
+#### Mode / Transition Events
+
+| Event                                  | When raised                          |
+| -------------------------------------- | ------------------------------------ |
+| `ZMK_DYNAMIC_MACRO_MOVE_PROMPT`        | Entered move mode                    |
+| `ZMK_DYNAMIC_MACRO_MOVE_SRC_SELECTED`  | Move source selected (`slot`=source) |
+| `ZMK_DYNAMIC_MACRO_MOVE_CANCELLED`     | Move cancelled (same-slot)           |
+| `ZMK_DYNAMIC_MACRO_DELETE_PROMPT`      | Entered delete mode                  |
+| `ZMK_DYNAMIC_MACRO_PREVIEW_PROMPT`     | Entered preview mode                 |
+| `ZMK_DYNAMIC_MACRO_CHAIN_INSERTED`     | Slot chained into the draft          |
+| `ZMK_DYNAMIC_MACRO_PENDING_CANCELLED`  | A pending mode timed out → IDLE      |
+| `ZMK_DYNAMIC_MACRO_SETTINGS_CHANGED`   | Feedback level / style / erase changed |
+
+`SETTINGS_CHANGED` carries no value; read the current settings with the query API
+below.
+
 #### Error Events
 
-| Event                                  | Meaning                           |
-| -------------------------------------- | --------------------------------- |
-| `ZMK_DYNAMIC_MACRO_ERROR_OVERFLOW`     | Recording buffer full             |
-| `ZMK_DYNAMIC_MACRO_ERROR_SAVE_FAILED`  | NVS write failed                  |
-| `ZMK_DYNAMIC_MACRO_ERROR_DELETE_FAILED`| NVS delete failed                 |
-| `ZMK_DYNAMIC_MACRO_ERROR_QUEUE_FULL`   | Storage queue full, retry later   |
-| `ZMK_DYNAMIC_MACRO_ERROR_SLOT_EMPTY`   | Attempted operation on empty slot |
-| `ZMK_DYNAMIC_MACRO_ERROR_NO_RECORDING` | Stop pressed with no recording    |
+| Event                                     | Meaning                           |
+| ----------------------------------------- | --------------------------------- |
+| `ZMK_DYNAMIC_MACRO_ERROR_OVERFLOW`        | Recording buffer full             |
+| `ZMK_DYNAMIC_MACRO_ERROR_CHAIN_FULL`      | Chain would exceed the slot limit |
+| `ZMK_DYNAMIC_MACRO_ERROR_SAVE_FAILED`     | NVS write failed                  |
+| `ZMK_DYNAMIC_MACRO_ERROR_DELETE_FAILED`   | NVS delete failed                 |
+| `ZMK_DYNAMIC_MACRO_ERROR_SAVE_QUEUE_FULL` | Save queue full, retry later      |
+| `ZMK_DYNAMIC_MACRO_ERROR_DELETE_QUEUE_FULL`| Delete queue full, retry later   |
+| `ZMK_DYNAMIC_MACRO_ERROR_SLOT_EMPTY`      | Operation on an empty slot        |
+| `ZMK_DYNAMIC_MACRO_ERROR_SLOT_OCCUPIED`   | Assign/move target not empty      |
+| `ZMK_DYNAMIC_MACRO_ERROR_NO_RECORDING`    | Stop pressed with no recording    |
+
+> `ZMK_DYNAMIC_MACRO_ERROR_QUEUE_FULL` is **deprecated** — it is retained for
+> source compatibility but no longer raised. Use the `SAVE`/`DELETE` queue-full
+> split above.
+
+`ERROR_SLOT_EMPTY` covers several cases (failed chain, empty move source, empty
+delete, empty play); disambiguate from `state` — e.g. `ERROR_SLOT_EMPTY` while
+`state == RECORDING` is a failed chain.
 
 ## Subscribing to Events
 
@@ -108,7 +152,13 @@ Events notify that something changed. Query functions retrieve current state. Ca
 enum zmk_dynamic_macro_state dm_get_state(void);
 ```
 
-Returns current state: `IDLE`, `RECORDING`, or `PLAYING`.
+Returns the current **effective** state — the same value reported in each event's
+`.state` field. This includes the pending modes (`ASSIGN_PENDING`,
+`MOVE_PENDING`, `DELETE_PENDING`, `PREVIEW_PENDING`) in addition to `IDLE`,
+`RECORDING`, and `PLAYING`.
+
+Prefer `.state` (or `dm_get_state()`) for the durable mode a widget renders, and
+`event` for transient toasts.
 
 #### `dm_get_recording_event_count()`
 
@@ -117,6 +167,36 @@ uint32_t dm_get_recording_event_count(void);
 ```
 
 Returns number of events captured in current recording. Returns 0 if not recording.
+
+### Settings Queries
+
+Read on a `SETTINGS_CHANGED` event to mirror the runtime feedback knobs (the
+value is not encoded in the event). When feedback is compiled out these return
+defaults (level 0, style 0, erase false).
+
+#### `dm_get_feedback_level()`
+
+```c
+int dm_get_feedback_level(void);
+```
+
+Current feedback verbosity level (`DM_FB_LEVEL_OFF`..`DM_FB_LEVEL_VERBOSE`).
+
+#### `dm_get_feedback_style()`
+
+```c
+int dm_get_feedback_style(void);
+```
+
+Current feedback style: 0 = full, 1 = arrow.
+
+#### `dm_get_erase_enabled()`
+
+```c
+bool dm_get_erase_enabled(void);
+```
+
+True if auto-erase is enabled.
 
 ### Slot Queries
 

@@ -7,8 +7,24 @@ config ZMK_BEHAVIOR_DYNAMIC_MACRO
 if ZMK_BEHAVIOR_DYNAMIC_MACRO
 
 config ZMK_BEHAVIOR_DYNAMIC_MACRO_MAX_EVENTS
-    int "Maximum number of events per macro slot (press + release = 2 events)"
+    int "Maximum number of events a single macro can hold (press + release = 2 events)"
     default 64
+    help
+      Maximum events a single macro can hold. Also sizes the in-progress recording
+      buffer. Must be <= AVG_EVENTS_PER_SLOT x number of slots.
+
+config ZMK_BEHAVIOR_DYNAMIC_MACRO_AVG_EVENTS_PER_SLOT
+    int "Average events per slot (sizes the shared recording pool)"
+    default 32
+    range 1 64
+    help
+      All macro slots share one recording pool sized AVG_EVENTS_PER_SLOT x number
+      of slots. A single macro can be longer than this average, as long as the
+      total recorded across all slots stays within the pool -- so a few long
+      macros leave less room for the rest. A typical keystroke is 2 events
+      (press + release). Set this equal to "Maximum events per macro" to guarantee
+      every slot can be filled to the maximum at once (no pool sharing, no RAM
+      savings).
 
 config ZMK_BEHAVIOR_DYNAMIC_MACRO_TAP_DELAY
     int "Delay in ms between each event during playback"
@@ -129,11 +145,12 @@ config ZMK_BEHAVIOR_DYNAMIC_MACRO_FEEDBACK_AUTO_ERASE
     help
       Automatically delete typed feedback output after a configurable delay
       by emitting backspace keycodes. Cancelled if user types before the
-      delay expires. Multi-line status output is excluded.
+      delay expires. Status output is excluded (it is informational and may be
+      long).
 
 config ZMK_BEHAVIOR_DYNAMIC_MACRO_FEEDBACK_ERASE_DELAY
     int "Auto-erase delay in ms"
-    default 1500
+    default 1000
     range 500 10000
     depends on ZMK_BEHAVIOR_DYNAMIC_MACRO_FEEDBACK_AUTO_ERASE
 
@@ -173,6 +190,23 @@ config ZMK_BEHAVIOR_DYNAMIC_MACRO_STATUS_DETAIL
     default 3 if ZMK_BEHAVIOR_DYNAMIC_MACRO_STATUS_USED_PREVIEW
     default 4 if ZMK_BEHAVIOR_DYNAMIC_MACRO_STATUS_FULL
 
+config ZMK_BEHAVIOR_DYNAMIC_MACRO_STATUS_HEADER_SEP
+    string "Status header-to-first-slot separator"
+    default " || "
+    help
+      Status output is a SINGLE line: the header and each macro are joined by
+      separators rather than newlines, so an accidental status press cannot fire
+      a return in the wrong context. This joins the header to the first macro.
+      Setting it to a value containing a newline ("\n") opts back into multi-line
+      output at your own risk.
+
+config ZMK_BEHAVIOR_DYNAMIC_MACRO_STATUS_SLOT_SEP
+    string "Status slot-to-slot separator"
+    default " | "
+    help
+      Joins each macro to the previous one in the single-line status output. As
+      with the header separator, a newline value opts back into multi-line.
+
 config ZMK_BEHAVIOR_DYNAMIC_MACRO_TEST_RELOAD
     bool "Test-only: DM_TEST_RELOAD command to simulate NVS reboot"
     default n
@@ -191,3 +225,16 @@ config ZMK_BEHAVIOR_DYNAMIC_MACRO_EVENTS
       slot contents.
 
 endif
+
+# The native_sim flash simulator defaults to a file backing (./flash.bin,
+# relative to the process working directory). ZMK's run-test.sh runs every
+# test binary from one shared directory, up to four in parallel, so any two
+# NVS tests would share — and corrupt — the same flash file, and a previous
+# run's slots would leak into the next. Backing the flash with RAM gives each
+# test process a pristine, private flash; DM_TEST_RELOAD still exercises the
+# full settings/NVS round-trip in-process. Gated on the test-only RELOAD
+# symbol so production native builds are unaffected.
+config NATIVE_EXTRA_CMDLINE_ARGS
+    string
+    depends on ARCH_POSIX
+    default "--flash_in_ram" if ZMK_BEHAVIOR_DYNAMIC_MACRO_TEST_RELOAD && FLASH_SIMULATOR
