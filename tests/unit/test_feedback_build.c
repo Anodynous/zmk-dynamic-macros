@@ -95,6 +95,7 @@ static dm_fb_facts facts_default(void) {
     return (dm_fb_facts){
         .filled_count = 0, .nvs_slots = 8, .max_slots = 16,
         .preview_event_count = 0, .slot_is_empty = false,
+        .header_sep = " || ", .slot_sep = " | ", .status_first_slot = false,
     };
 }
 
@@ -222,7 +223,8 @@ ZTEST(dm_feedback_build, status_header_full_us) {
     dm_fb_facts f = facts_default();
     f.filled_count = 2;
     dm_feedback_build(&spec, DM_FB_STYLE_FULL, DM_LOCALE_US, &f, &d.sink);
-    zassert_str_equal(d.buf, "[DM 2/16 NVS:0-7 RAM:8-15]\n", NULL);
+    /* single-line: header carries no trailing newline (slots are joined after it) */
+    zassert_str_equal(d.buf, "[DM 2/16 NVS:0-7 RAM:8-15]", NULL);
 }
 
 ZTEST(dm_feedback_build, status_header_arrow) {
@@ -232,31 +234,48 @@ ZTEST(dm_feedback_build, status_header_arrow) {
     dm_fb_facts f = facts_default();
     f.filled_count = 2;
     dm_feedback_build(&spec, DM_FB_STYLE_ARROW, DM_LOCALE_US, &f, &d.sink);
-    zassert_str_equal(d.buf, "==2/16 N0-7 R8-15\n", NULL);
+    zassert_str_equal(d.buf, "==2/16 N0-7 R8-15", NULL);
 }
 
 /* ---- status slot lines ---------------------------------------------------- */
 
-ZTEST(dm_feedback_build, status_slot_empty_line) {
+/* The FIRST slot after the header leads with header_sep (" || "), no trailing \n. */
+ZTEST(dm_feedback_build, status_slot_empty_first_leads_header_sep) {
     struct decode_sink d;
     ds_init(&d, DM_LOCALE_US);
     dm_feedback_spec spec = {.kind = DM_FB_STATUS_SLOT, .slot = 4, .slot2 = -1};
     dm_fb_facts f = facts_default();
     f.slot_is_empty = true;
+    f.status_first_slot = true;
     bool preview = dm_feedback_build(&spec, DM_FB_STYLE_FULL, DM_LOCALE_US, &f, &d.sink);
     zassert_false(preview, NULL);
-    zassert_str_equal(d.buf, "N4: -\n", NULL);
+    zassert_str_equal(d.buf, " || N4: -", NULL);
 }
 
-ZTEST(dm_feedback_build, status_slot_count_no_preview) {
+/* A LATER slot leads with slot_sep (" | "), no trailing \n. */
+ZTEST(dm_feedback_build, status_slot_count_later_leads_slot_sep) {
     struct decode_sink d;
     ds_init(&d, DM_LOCALE_US);
     dm_feedback_spec spec = {.kind = DM_FB_STATUS_SLOT, .slot = 4, .slot2 = -1, .show_preview = false};
     dm_fb_facts f = facts_default();
     f.slot_is_empty = false;
     f.preview_event_count = 7;
+    f.status_first_slot = false;
     dm_feedback_build(&spec, DM_FB_STYLE_FULL, DM_LOCALE_US, &f, &d.sink);
-    zassert_str_equal(d.buf, "N4: 7\n", NULL);
+    zassert_str_equal(d.buf, " | N4: 7", NULL);
+}
+
+/* A custom separator (e.g. a user setting slot_sep to "\n") flows through. */
+ZTEST(dm_feedback_build, status_slot_honours_custom_separator) {
+    struct decode_sink d;
+    ds_init(&d, DM_LOCALE_US);
+    dm_feedback_spec spec = {.kind = DM_FB_STATUS_SLOT, .slot = 4, .slot2 = -1, .show_preview = false};
+    dm_fb_facts f = facts_default();
+    f.slot_sep = "\n";
+    f.preview_event_count = 7;
+    f.status_first_slot = false;
+    dm_feedback_build(&spec, DM_FB_STYLE_FULL, DM_LOCALE_US, &f, &d.sink);
+    zassert_str_equal(d.buf, "\nN4: 7", NULL);
 }
 
 /* ---- preview streaming: SAVED with a literal 'ab' macro ------------------- */
@@ -313,6 +332,32 @@ ZTEST(dm_feedback_build, saved_with_preview_ctrl_token) {
     dm_feedback_build_preview(&view, DM_LOCALE_US, &d.sink, NULL);
     dm_feedback_build_preview_suffix(&spec, DM_FB_STYLE_FULL, DM_LOCALE_US, &f, &d.sink);
     zassert_str_equal(d.buf, "[DM SAVED N0: '<LCTL+C>']", NULL);
+}
+
+/* A STATUS_SLOT with a preview: leads with its separator, ends with " (N)" and
+ * NO trailing newline (single-line status). */
+ZTEST(dm_feedback_build, status_slot_preview_line_single_line) {
+    struct decode_sink d;
+    ds_init(&d, DM_LOCALE_US);
+    dm_feedback_spec spec = {.kind = DM_FB_STATUS_SLOT, .slot = 4, .slot2 = -1, .show_preview = true};
+    dm_fb_facts f = facts_default();
+    f.slot_is_empty = false;
+    f.preview_event_count = 2;
+    f.status_first_slot = false; /* a later slot -> leads with slot_sep */
+
+    bool preview = dm_feedback_build(&spec, DM_FB_STYLE_FULL, DM_LOCALE_US, &f, &d.sink);
+    zassert_true(preview, NULL);
+    /* scaffolding so far: " | N4: '" */
+    zassert_str_equal(d.buf, " | N4: '", NULL);
+
+    struct dm_event evs[] = {
+        key(0x04, 0, 0, 1), key(0x04, 0, 0, 0), /* a */
+        key(0x05, 0, 0, 1), key(0x05, 0, 0, 0), /* b */
+    };
+    dm_render_slot_view view = {.event_count = 4, .events = evs};
+    dm_feedback_build_preview(&view, DM_LOCALE_US, &d.sink, NULL);
+    dm_feedback_build_preview_suffix(&spec, DM_FB_STYLE_FULL, DM_LOCALE_US, &f, &d.sink);
+    zassert_str_equal(d.buf, " | N4: 'ab' (2)", NULL);
 }
 
 /* ---- UK locale punctuation in a message ----------------------------------- */

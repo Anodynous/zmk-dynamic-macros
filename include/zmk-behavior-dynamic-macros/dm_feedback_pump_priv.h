@@ -69,6 +69,13 @@ struct dm_feedback {
     bool status_mode;
     int  status_next_slot;   /* next slot to render after this line finishes */
 
+    /* single-line status separators (compile-time strings from the shell) and the
+     * "next slot is the first after the header" marker, so the first slot leads
+     * with header_sep and the rest with slot_sep. */
+    const char *status_header_sep;
+    const char *status_slot_sep;
+    bool        status_first_slot;
+
     /* True only while a status dump or a SAVED-with-preview is emitting: the two
      * long, informational outputs a keypress may interrupt. False for every short
      * cue (REC/STOP/errors/knob) and for the erase run, so a key mid-cue does not

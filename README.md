@@ -128,7 +128,19 @@ While recording, press a non-empty slot key to inline its contents. The chained 
 
 ### Status
 
-Press **STATE** to output slot info to the focused window.
+Press **STATE** to output slot info to the focused window. Status is typed on a
+**single line** with no trailing newline (an accidental status press cannot fire
+a return in the wrong context, e.g. sending a half-typed message). The header and
+each macro are joined by configurable separators:
+
+```
+[DM 2/8 NVS:0-7 RAM:8-15] || N0: 'hello' (5) | N1: 'world' (3)
+```
+
+`CONFIG_ZMK_BEHAVIOR_DYNAMIC_MACRO_STATUS_HEADER_SEP` (default `" || "`) joins the
+header to the first macro; `..._STATUS_SLOT_SEP` (default `" | "`) joins macros to
+each other. Setting either to a value containing `"\n"` opts back into multi-line
+output at your own risk.
 
 ## Bindings Reference
 
@@ -206,7 +218,7 @@ ARROW uses single punctuation marks with fixed roles: `>` success, `-` delete, `
 | `FEEDBACK_AUTO_ERASE` | n    | Delete feedback after display    |
 | `FEEDBACK_ERASE_DELAY`| 1500 | ms before erasing (500-10000)    |
 
-When enabled, feedback text is automatically erased by emitting backspace keycodes after the configured delay. If you type before the delay expires, the erase is cancelled. Multi-line status output is excluded. Pairs well with ARROW style's short output.
+When enabled, feedback text is automatically erased by emitting backspace keycodes after the configured delay. If you type before the delay expires, the erase is cancelled. Status output is excluded (it is informational and may be long). Pairs well with ARROW style's short output.
 
 `FEEDBACK_AUTO_ERASE` is the **build-time gate and the default** — it must be `y` for the feature to be compiled in. Once compiled in, `DM_ERASE_TOGGLE` flips auto-erase on/off at runtime (persisted across reboots), starting from this Kconfig default. With `FEEDBACK_AUTO_ERASE=n` the erase code is left out entirely and the toggle has no effect.
 

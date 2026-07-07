@@ -37,6 +37,19 @@
 #define DM_STATUS_FULL         4
 #define DM_STATUS_DETAIL       CONFIG_ZMK_BEHAVIOR_DYNAMIC_MACRO_STATUS_DETAIL
 
+/* Single-line status separators (compile-time strings). Fall back to the safe,
+ * newline-free defaults if the Kconfig is absent (e.g. a typing-disabled build). */
+#ifdef CONFIG_ZMK_BEHAVIOR_DYNAMIC_MACRO_STATUS_HEADER_SEP
+#define DM_STATUS_HEADER_SEP CONFIG_ZMK_BEHAVIOR_DYNAMIC_MACRO_STATUS_HEADER_SEP
+#else
+#define DM_STATUS_HEADER_SEP " || "
+#endif
+#ifdef CONFIG_ZMK_BEHAVIOR_DYNAMIC_MACRO_STATUS_SLOT_SEP
+#define DM_STATUS_SLOT_SEP CONFIG_ZMK_BEHAVIOR_DYNAMIC_MACRO_STATUS_SLOT_SEP
+#else
+#define DM_STATUS_SLOT_SEP " | "
+#endif
+
 /* Whether any typed output is compiled in at all. */
 #define DM_TYPING_ENABLED (DM_FEEDBACK_LEVEL > DM_FEEDBACK_OFF || DM_STATUS_DETAIL > DM_STATUS_OFF)
 

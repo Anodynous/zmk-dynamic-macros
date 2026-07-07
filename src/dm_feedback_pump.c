@@ -119,6 +119,9 @@ static dm_fb_facts gather_facts(const dm_feedback *f, const dm_feedback_spec *sp
         .max_slots = f->max_slots,
         .preview_event_count = 0,
         .slot_is_empty = false,
+        .header_sep = f->status_header_sep,
+        .slot_sep = f->status_slot_sep,
+        .status_first_slot = f->status_first_slot,
     };
     if (spec->slot >= 0) {
         struct dm_slot_view v = slot_store_get(f->store, spec->slot);
@@ -180,6 +183,8 @@ static bool status_advance(dm_feedback *f) {
         f->preview_pending = true;
         f->suffix_pending = true;
     }
+    /* this line consumed header_sep (if it was the first); the rest use slot_sep */
+    f->status_first_slot = false;
     start_timer(f);
     return true;
 }
@@ -328,6 +333,7 @@ void dm_feedback_speak(dm_feedback *f, const dm_feedback_spec *spec) {
 
     f->status_mode = is_status && f->status_detail >= DM_FB_STATUS_USED && f->max_slots > 0;
     f->status_next_slot = 0;
+    f->status_first_slot = true; /* the first slot leads with header_sep, the rest slot_sep */
 
     /* Only the two long informational outputs are interruptible by a keypress:
      * the status dump (any status output) and a SAVED cue that streams a preview.
@@ -544,6 +550,8 @@ void dm_feedback_pump_init(dm_feedback *f, const dm_feedback_config *cfg) {
     f->status_detail = cfg->status_detail;
     f->nvs_slots = cfg->nvs_slots;
     f->max_slots = cfg->max_slots;
+    f->status_header_sep = cfg->status_header_sep;
+    f->status_slot_sep = cfg->status_slot_sep;
     f->raise_keycode = cfg->raise_keycode;
     f->save_knobs = cfg->save_knobs;
     f->set_suppress = cfg->set_suppress;

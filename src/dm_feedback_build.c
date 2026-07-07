@@ -349,7 +349,17 @@ static void build_status_header(dm_fb_style style, dm_locale locale, const dm_fb
     if (style != DM_FB_STYLE_ARROW && !locale_is_plain(locale)) {
         emit_char(locale, sink, ']');
     }
-    emit_char(locale, sink, '\n');
+    /* No trailing newline: status is a single line, the slots are joined after the
+     * header by the caller-supplied separators (see dm_fb_facts). */
+}
+
+/* The separator a STATUS_SLOT line leads with: the first slot is joined to the
+ * header by header_sep, each later slot to the previous by slot_sep. */
+static void build_status_slot_sep(dm_locale locale, const dm_fb_facts *facts, dm_fb_sink *sink) {
+    const char *sep = facts->status_first_slot ? facts->header_sep : facts->slot_sep;
+    if (sep != NULL) {
+        emit_str(locale, sink, sep);
+    }
 }
 
 /* ---- the build entry points ----------------------------------------------- */
@@ -460,11 +470,11 @@ bool dm_feedback_build(const dm_feedback_spec *spec, dm_fb_style style, dm_local
         return false;
 
     case DM_FB_STATUS_SLOT:
+        build_status_slot_sep(locale, facts, sink); /* lead with header_sep / slot_sep */
         build_status_slot_label(style, locale, facts, sink, s);
         if (facts->slot_is_empty) {
             emit_char(locale, sink, '-');
-            emit_char(locale, sink, '\n');
-            return false;
+            return false; /* single line: no trailing newline */
         }
         if (spec->show_preview) {
             /* open quote: skipped for plain locale non-arrow */
@@ -474,7 +484,6 @@ bool dm_feedback_build(const dm_feedback_spec *spec, dm_fb_style style, dm_local
             return true; /* preview follows, then the count suffix */
         }
         emit_number(locale, sink, facts->preview_event_count);
-        emit_char(locale, sink, '\n');
         return false;
     }
     return false;
@@ -512,7 +521,8 @@ void dm_feedback_build_preview_suffix(const dm_feedback_spec *spec, dm_fb_style 
     const struct dm_msg_table *m = msg(style, locale);
 
     if (spec->kind == DM_FB_STATUS_SLOT) {
-        /* "' (N)\n" (arrow/punct) or " N EVENTS\n" (plain non-arrow) */
+        /* "' (N)" (arrow/punct) or " N EVENTS" (plain non-arrow) — no trailing
+         * newline; the next slot's leading separator provides the join. */
         if (style != DM_FB_STYLE_ARROW && locale_is_plain(locale)) {
             emit_char(locale, sink, ' ');
             emit_number(locale, sink, facts->preview_event_count);
@@ -522,7 +532,6 @@ void dm_feedback_build_preview_suffix(const dm_feedback_spec *spec, dm_fb_style 
             emit_number(locale, sink, facts->preview_event_count);
             emit_char(locale, sink, ')');
         }
-        emit_char(locale, sink, '\n');
         return;
     }
 

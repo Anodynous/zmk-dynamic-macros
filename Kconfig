@@ -145,7 +145,8 @@ config ZMK_BEHAVIOR_DYNAMIC_MACRO_FEEDBACK_AUTO_ERASE
     help
       Automatically delete typed feedback output after a configurable delay
       by emitting backspace keycodes. Cancelled if user types before the
-      delay expires. Multi-line status output is excluded.
+      delay expires. Status output is excluded (it is informational and may be
+      long).
 
 config ZMK_BEHAVIOR_DYNAMIC_MACRO_FEEDBACK_ERASE_DELAY
     int "Auto-erase delay in ms"
@@ -188,6 +189,23 @@ config ZMK_BEHAVIOR_DYNAMIC_MACRO_STATUS_DETAIL
     default 2 if ZMK_BEHAVIOR_DYNAMIC_MACRO_STATUS_USED
     default 3 if ZMK_BEHAVIOR_DYNAMIC_MACRO_STATUS_USED_PREVIEW
     default 4 if ZMK_BEHAVIOR_DYNAMIC_MACRO_STATUS_FULL
+
+config ZMK_BEHAVIOR_DYNAMIC_MACRO_STATUS_HEADER_SEP
+    string "Status header-to-first-slot separator"
+    default " || "
+    help
+      Status output is a SINGLE line: the header and each macro are joined by
+      separators rather than newlines, so an accidental status press cannot fire
+      a return in the wrong context. This joins the header to the first macro.
+      Setting it to a value containing a newline ("\n") opts back into multi-line
+      output at your own risk.
+
+config ZMK_BEHAVIOR_DYNAMIC_MACRO_STATUS_SLOT_SEP
+    string "Status slot-to-slot separator"
+    default " | "
+    help
+      Joins each macro to the previous one in the single-line status output. As
+      with the header separator, a newline value opts back into multi-line.
 
 config ZMK_BEHAVIOR_DYNAMIC_MACRO_TEST_RELOAD
     bool "Test-only: DM_TEST_RELOAD command to simulate NVS reboot"

@@ -70,6 +70,16 @@ typedef struct {
     int  max_slots;             /* MAX_SLOTS */
     int  preview_event_count;   /* slot's event count, for the count suffix */
     bool slot_is_empty;         /* status slot: render "-" instead of a preview */
+
+    /* Status output is a SINGLE line (no trailing newline — a return could fire in
+     * the wrong context). Items are joined by caller-supplied separators: the
+     * first slot is joined to the header by header_sep, each later slot by
+     * slot_sep. Both are compile-time strings (Kconfig); a user who sets one to
+     * "\n" opts back into multi-line at their own risk. status_first_slot tells a
+     * STATUS_SLOT build which separator to lead with. */
+    const char *header_sep;     /* header -> first slot (e.g. " || ") */
+    const char *slot_sep;       /* slot -> slot (e.g. " | ") */
+    bool        status_first_slot; /* this STATUS_SLOT is the first after the header */
 } dm_fb_facts;
 
 /* ---- the build entry points ----------------------------------------------- */

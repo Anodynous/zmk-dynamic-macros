@@ -821,6 +821,8 @@ static int behavior_dynamic_macro_init(const struct device *dev) {
         .store = &inst->store,
         .locale = (dm_locale)DM_LOCALE,
         .status_detail = DM_STATUS_DETAIL,
+        .status_header_sep = DM_STATUS_HEADER_SEP,
+        .status_slot_sep = DM_STATUS_SLOT_SEP,
         .nvs_slots = NVS_SLOTS,
         .max_slots = MAX_SLOTS,
         .default_level = DM_FEEDBACK_LEVEL,

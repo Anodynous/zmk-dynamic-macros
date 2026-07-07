@@ -78,6 +78,11 @@ typedef struct {
     int       nvs_slots;       /* NVS_SLOTS */
     int       max_slots;       /* MAX_SLOTS */
 
+    /* single-line status separators (compile-time strings): header -> first slot,
+     * and slot -> slot. A user may set either to "\n" to opt back into multi-line. */
+    const char *status_header_sep;
+    const char *status_slot_sep;
+
     /* Initial / restored knob defaults (Kconfig DM_FEEDBACK_LEVEL etc.). */
     uint8_t default_level;
     uint8_t default_style;
