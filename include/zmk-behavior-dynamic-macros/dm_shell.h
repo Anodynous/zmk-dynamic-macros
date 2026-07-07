@@ -55,6 +55,14 @@ struct dm_inst {
 
     /* shell-owned wiring the modules deliberately don't carry */
     bool suppress_recording;          /* listener gate while emitters type */
+#if DM_TYPING_ENABLED
+    /* True only for the duration of the pump's OWN emitted keystroke raise, so the
+     * listener tells our output apart from a foreign key (which aborts a live
+     * status dump / SAVED-with-preview). Race-free: ZMK event dispatch is
+     * synchronous, so the listener runs nested inside the raise and clears before
+     * it returns. */
+    bool emitting_now;
+#endif
     struct k_work_delayable timeout_work; /* assign/move/delete/preview timeout */
 
     /*

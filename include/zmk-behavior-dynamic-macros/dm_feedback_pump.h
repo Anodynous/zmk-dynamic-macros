@@ -154,6 +154,22 @@ bool    dm_feedback_erase(const dm_feedback *f);
  */
 void dm_feedback_pump_cancel_erase(dm_feedback *f);
 
+/* ---- output interruption --------------------------------------------------- */
+
+/*
+ * Abort an in-progress feedback OUTPUT (a status dump or a SAVED-with-preview)
+ * so a keypress can dismiss it. Both park IDLE as their return-state, so the
+ * abort simply stops the emit timer, drains the ring, drops suppression, and
+ * reports dm_machine_typing_finished — settling cleanly to IDLE.
+ *
+ * The abortable window is (emit_active && !erase_in_progress): an in-progress
+ * auto-erase has its own cancel (dm_feedback_pump_cancel_erase) and is NOT
+ * touched here. Returns true iff an output was actually aborted; false (no-op)
+ * otherwise, so a listener can call it unconditionally and use the return as the
+ * "swallow this key" (ZMK_EV_EVENT_HANDLED) signal.
+ */
+bool dm_feedback_pump_cancel_output(dm_feedback *f);
+
 #ifdef __cplusplus
 }
 #endif

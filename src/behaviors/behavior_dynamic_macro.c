@@ -247,7 +247,12 @@ static void dm_set_suppress(void *ctx, bool suppress) {
  * Suppression is already held by the pump while it types, so these are not
  * recorded. */
 static void dm_raise_feedback_keycode(void *ctx, uint16_t keycode, uint8_t mods, bool pressed) {
-    (void)ctx;
+    struct dm_inst *inst = ctx;
+    /* Mark this raise as our OWN output so the listener does not treat it as a
+     * foreign key aborting the in-progress output. Safe as a plain flag because
+     * ZMK dispatch is synchronous: the listener runs (and reads the flag) nested
+     * inside this raise, before it returns and we clear it. */
+    inst->emitting_now = true;
     raise_zmk_keycode_state_changed((struct zmk_keycode_state_changed){
         .usage_page = HID_USAGE_KEY,
         .keycode = keycode,
@@ -256,6 +261,7 @@ static void dm_raise_feedback_keycode(void *ctx, uint16_t keycode, uint8_t mods,
         .state = pressed,
         .timestamp = k_uptime_get(),
     });
+    inst->emitting_now = false;
 }
 #endif
 
@@ -486,6 +492,19 @@ static int on_keymap_binding_pressed(struct zmk_behavior_binding *binding,
 #if DM_TYPING_ENABLED
     /* any DM binding press cancels a scheduled / in-progress auto-erase */
     dm_feedback_pump_cancel_erase(&inst->feedback);
+
+    /*
+     * Interrupt (trigger A): a DM binding press during a live status dump /
+     * SAVED-with-preview aborts it — and ONLY aborts it (its command does not
+     * also run, matching "abort only"). Returning OPAQUE here swallows the key
+     * (as every DM binding does) and skips the switch, so the command is
+     * dropped. The machine would IGNORE the command anyway while TYPING, but
+     * returning early keeps the "abort only" contract explicit and independent
+     * of that timing.
+     */
+    if (dm_feedback_pump_cancel_output(&inst->feedback)) {
+        return ZMK_BEHAVIOR_OPAQUE;
+    }
 #endif
 
     switch (binding->param1) {
@@ -654,6 +673,27 @@ static int dm_event_listener(const zmk_event_t *eh) {
     if (!ev) {
         return ZMK_EV_EVENT_BUBBLE;
     }
+
+#if DM_TYPING_ENABLED
+    /*
+     * Interrupt (trigger B): a FOREIGN key aborts a live status dump /
+     * SAVED-with-preview and is swallowed (HANDLED) so it does not also land on
+     * the host. This runs ABOVE the suppress check on purpose: feedback output
+     * holds suppress for its whole run, so it cannot distinguish our own emission
+     * from a foreign key — emitting_now (set only around our own raise) is the
+     * discriminator. Our own emission (emitting_now) is skipped so the dump does
+     * not swallow its own keystrokes.
+     */
+    for (size_t i = 0; i < dm_devices_len; i++) {
+        struct dm_inst *inst = dm_devices[i]->data;
+        if (inst->emitting_now) {
+            continue;
+        }
+        if (dm_feedback_pump_cancel_output(&inst->feedback)) {
+            return ZMK_EV_EVENT_HANDLED; /* aborted an output → swallow this key */
+        }
+    }
+#endif
 
     /* single-instance: any instance suppressing means the emitted keystrokes are
      * our own playback/feedback output — do not record them. */

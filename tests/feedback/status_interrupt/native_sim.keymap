@@ -1,0 +1,83 @@
+#include <dt-bindings/zmk/keys.h>
+#include <behaviors.dtsi>
+#include <dt-bindings/zmk/kscan_mock.h>
+#include <behaviors/dynamic_macro.dtsi>
+#include <dt-bindings/zmk/dynamic_macros.h>
+
+/*
+ * Interrupt (trigger B): a FOREIGN key aborts a live STATUS dump and is
+ * SWALLOWED (does not reach the host).
+ *
+ * Record two RAM macros, then fire STATUS at USED_PREVIEW detail (arrow style),
+ * which streams a header line plus one preview line per filled slot — a long,
+ * multi-keystroke dump at TAP_DELAY=40. While that dump is still typing, press a
+ * plain &kp E.
+ *
+ *   Fixed:  the E press aborts the dump (dm_feedback_pump_cancel_output) and is
+ *           swallowed via ZMK_EV_EVENT_HANDLED, so the snapshot shows a PARTIAL
+ *           status dump and NO 'e' (keycode 0x08) keystroke at all.
+ *   Buggy:  the dump types to completion and the 'e' lands afterwards, so the
+ *           snapshot shows the FULL two-slot dump followed by an 'e' press.
+ *
+ * The E press is timed deep inside the dump window so exact-timing jitter does
+ * not change the outcome (still partial, still swallowed) — the same robustness
+ * approach as erase_cancel_del.
+ *
+ * AUTO_ERASE is off so the recorded macros' SAVED cues do not schedule erases
+ * that would muddy the stream. TAP_DELAY=40 (see native_sim.conf).
+ */
+
+&kscan {
+    rows = <4>;
+    columns = <2>;
+    exit-after;
+};
+
+/ {
+    keymap {
+        compatible = "zmk,keymap";
+        default_layer {
+            bindings = <
+                &dm DM_REC 0        &dm DM_STP 0
+                &dm DM_SLOT_RAM 0   &dm DM_SLOT_RAM 1
+                &dm DM_STATE 0      &kp E
+                &kp C               &kp D
+            >;
+        };
+    };
+};
+
+&kscan {
+    events = <
+        /* --- record "cd" into RAM slot 0 --- */
+        ZMK_MOCK_PRESS(0,0,10)      /* REC */
+        ZMK_MOCK_RELEASE(0,0,300)
+        ZMK_MOCK_PRESS(3,0,10)      /* C */
+        ZMK_MOCK_RELEASE(3,0,10)
+        ZMK_MOCK_PRESS(3,1,10)      /* D */
+        ZMK_MOCK_RELEASE(3,1,10)
+        ZMK_MOCK_PRESS(0,1,300)     /* STP */
+        ZMK_MOCK_RELEASE(0,1,300)
+        ZMK_MOCK_PRESS(1,0,10)      /* SLOT_RAM 0 assign */
+        ZMK_MOCK_RELEASE(1,0,600)
+
+        /* --- record "cd" into RAM slot 1 --- */
+        ZMK_MOCK_PRESS(0,0,10)      /* REC */
+        ZMK_MOCK_RELEASE(0,0,300)
+        ZMK_MOCK_PRESS(3,0,10)      /* C */
+        ZMK_MOCK_RELEASE(3,0,10)
+        ZMK_MOCK_PRESS(3,1,10)      /* D */
+        ZMK_MOCK_RELEASE(3,1,10)
+        ZMK_MOCK_PRESS(0,1,300)     /* STP */
+        ZMK_MOCK_RELEASE(0,1,300)
+        ZMK_MOCK_PRESS(1,1,10)      /* SLOT_RAM 1 assign */
+        ZMK_MOCK_RELEASE(1,1,600)
+
+        /* --- STATUS dump (long: header + 2 preview lines) --- */
+        ZMK_MOCK_PRESS(2,0,10)      /* STATE */
+        ZMK_MOCK_RELEASE(2,0,10)
+        /* --- foreign key deep inside the dump: aborts + is swallowed --- */
+        ZMK_MOCK_PRESS(2,1,500)     /* kp E */
+        ZMK_MOCK_RELEASE(2,1,2000)
+    >;
+};

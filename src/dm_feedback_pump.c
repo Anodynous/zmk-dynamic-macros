@@ -17,6 +17,7 @@
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
 
+#include <zmk-behavior-dynamic-macros/dm_feedback_interrupt.h>
 #include <zmk-behavior-dynamic-macros/dm_feedback_pump.h>
 
 LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
@@ -495,6 +496,34 @@ static void cancel_erase(dm_feedback *f) {
 
 void dm_feedback_pump_cancel_erase(dm_feedback *f) {
     cancel_erase(f);
+}
+
+/* ---- output interruption (status dump / SAVED-with-preview) ------------------ */
+
+bool dm_feedback_pump_cancel_output(dm_feedback *f) {
+    /* Only a live status dump or SAVED-with-preview is abortable here; an
+     * in-progress erase is left to cancel_erase. The pure predicate owns the rule. */
+    if (!dm_fb_output_abortable(f->emit_active, f->erase_in_progress)) {
+        return false;
+    }
+
+    /* Same shape as cancel_erase's in-progress branch: stop the timer, drain the
+     * ring to abort mid-line, and clear emit_active so an emit_timer fire already
+     * in flight (it cannot be un-queued once the timer ISR has submitted
+     * emit_work) is inert and cannot report a phantom typing_finished. */
+    k_timer_stop(&f->emit_timer);
+    f->ring_head = f->ring_tail;
+    f->preview_pending = false;
+    f->suffix_pending = false;
+    f->status_mode = false;
+    f->have_spec = false;
+    f->emit_active = false;
+    f->set_suppress(f->ctx, false);
+
+    /* Both abortable operations parked IDLE as their return-state, so this settles
+     * cleanly to IDLE — no erase_cancel-style parked-state restore is needed. */
+    dm_machine_typing_finished(f->machine);
+    return true;
 }
 
 /* ---- lifecycle -------------------------------------------------------------- */
