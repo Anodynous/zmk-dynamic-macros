@@ -228,11 +228,13 @@ ARROW uses single punctuation marks with fixed roles: `>` success, `-` delete, `
 | Option             | Default | Description                      |
 | ------------------ | ------- | -------------------------------- |
 | `FEEDBACK_AUTO_ERASE` | n    | Delete feedback after display    |
-| `FEEDBACK_ERASE_DELAY`| 1000 | ms before erasing (500-10000)    |
+==== BASE ====
+| `FEEDBACK_ERASE_DELAY`| 1500 | ms before erasing (500-10000)    |
+==== BASE ====
 
-When enabled, feedback text is automatically erased by emitting backspace keycodes after the configured delay. If you type before the delay expires, the erase is cancelled. Status output is excluded (it is informational and may be long). Pairs well with ARROW style's short output.
-
-`FEEDBACK_AUTO_ERASE` is the **build-time gate and the default** — it must be `y` for the feature to be compiled in. Once compiled in, `DM_ERASE_TOGGLE` flips auto-erase on/off at runtime (persisted across reboots), starting from this Kconfig default. With `FEEDBACK_AUTO_ERASE=n` the erase code is left out entirely and the toggle has no effect.
+==== BASE ====
+When enabled, feedback text is automatically erased by emitting backspace keycodes after the configured delay. If you type before the delay expires, the erase is cancelled. Multi-line status output is excluded. Pairs well with ARROW style's short output.
+==== BASE ====
 
 ### Locale
 
