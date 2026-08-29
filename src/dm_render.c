@@ -11,7 +11,7 @@
  * dm_get_preview_string query API cannot disagree.
  *
  * Locale → character mapping is static const data (one dm_keymap per locale;
- * see below). US/UK are full-punctuation locales; the plain locales (DE/FR)
+ * see below). US/UK/FI are full-punctuation locales; the plain locales (DE/FR)
  * map digits and space only, so a recorded punctuation key falls through to a
  * <TOKEN> — previews on a plain locale are letters, digits, and space.
  */
@@ -77,6 +77,24 @@ static const dm_keymap_row keymap_uk[] = {
     {0x64, '\\', '|'},
 };
 
+/* Finnish (full punctuation, like US/UK), per the ISO FI layout: the number row
+ * diverges from US (Shift+4 = currency sign -> token, Shift+7 = /, Shift+0 = =),
+ * and the punctuation keys sit at ISO positions — ' at 0x32 (NON_US_HASH) and
+ * < > at 0x64 (NON_US_BSLH). The FI-specific glyphs (A-ring, diaeresis, O-dia,
+ * A-dia, section, dead acute) are non-ASCII, so those slots hold '\0' -> token.
+ * 0x31 (BACKSLASH) is not emitted by the FI encoder, so it is absent -> token. */
+static const dm_keymap_row keymap_fi[] = {
+    {0x1E, '1', '!'}, {0x1F, '2', '"'}, {0x20, '3', '#'}, {0x21, '4', 0 /* currency */},
+    {0x22, '5', '%'}, {0x23, '6', '&'}, {0x24, '7', '/'}, {0x25, '8', '('},
+    {0x26, '9', ')'}, {0x27, '0', '='},
+    {0x2C, ' ', ' '}, {0x2D, '+', '?'}, {0x2E, 0 /* dead acute */, '`'},
+    {0x2F, 0 /* A-ring */, 0}, {0x30, 0 /* dead diaeresis */, '^'},
+    {0x32, '\'', '*'}, {0x33, 0 /* O-dia */, ';'}, {0x34, 0 /* A-dia */, ':'},
+    {0x35, 0 /* section */, 0 /* half */}, {0x36, ',', ';'}, {0x37, '.', ':'},
+    {0x38, '-', '_'},
+    {0x64, '<', '>'},
+};
+
 /* Plain locales (DE/FR): digits + space only, no punctuation inversion. A
  * recorded punctuation key therefore falls through to a <TOKEN> — previews on
  * a plain locale are letters, digits, and space. */
@@ -88,21 +106,17 @@ static const dm_keymap_row keymap_plain[] = {
 typedef struct {
     const dm_keymap_row *rows;
     uint8_t              len;
-    bool                 plain; /* style/spacing variant (token delimiters) */
 } dm_keymap;
 
 #define DM_KEYMAP_LEN(t) ((uint8_t)(sizeof(t) / sizeof((t)[0])))
 
 static const dm_keymap keymaps[] = {
-    [DM_LOCALE_US] = {keymap_us, DM_KEYMAP_LEN(keymap_us), false},
-    [DM_LOCALE_UK] = {keymap_uk, DM_KEYMAP_LEN(keymap_uk), false},
-    [DM_LOCALE_DE] = {keymap_plain, DM_KEYMAP_LEN(keymap_plain), true},
-    [DM_LOCALE_FR] = {keymap_plain, DM_KEYMAP_LEN(keymap_plain), true},
+    [DM_LOCALE_US] = {keymap_us, DM_KEYMAP_LEN(keymap_us)},
+    [DM_LOCALE_UK] = {keymap_uk, DM_KEYMAP_LEN(keymap_uk)},
+    [DM_LOCALE_DE] = {keymap_plain, DM_KEYMAP_LEN(keymap_plain)},
+    [DM_LOCALE_FR] = {keymap_plain, DM_KEYMAP_LEN(keymap_plain)},
+    [DM_LOCALE_FI] = {keymap_fi, DM_KEYMAP_LEN(keymap_fi)},
 };
-
-static bool locale_is_plain(dm_locale locale) {
-    return keymaps[locale].plain;
-}
 
 /*
  * Map a HID keycode (+ shift) back to the printable character it produces on the
@@ -224,7 +238,7 @@ static const char *const mod_names[] = {"LCTL", "LSFT", "LALT", "LGUI",
 /* Char length a token will occupy, for the sink's space_for() backpressure. */
 static uint8_t token_size(dm_locale locale, uint8_t mods, uint16_t usage_page, uint32_t keycode) {
     uint8_t size = 0;
-    if (!locale_is_plain(locale)) {
+    if (!dm_locale_is_plain(locale)) {
         size += 2; /* '<' and '>' */
     }
     bool first = true;
@@ -253,7 +267,7 @@ static void emit_str(dm_sink *sink, const char *s) {
 /* Render the <TOKEN> form to the sink as characters. */
 static void emit_token(dm_sink *sink, dm_locale locale, uint8_t mods, uint16_t usage_page,
                        uint32_t keycode) {
-    bool plain = locale_is_plain(locale);
+    bool plain = dm_locale_is_plain(locale);
     char sep = plain ? ' ' : '+';
 
     if (!plain) {

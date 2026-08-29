@@ -98,7 +98,7 @@ choice ZMK_BEHAVIOR_DYNAMIC_MACRO_LOCALE_CHOICE
     default ZMK_BEHAVIOR_DYNAMIC_MACRO_LOCALE_US
     depends on !ZMK_BEHAVIOR_DYNAMIC_MACRO_FEEDBACK_OFF
     help
-      Select host keyboard layout. US QWERTY enables full punctuated output.
+      Select host keyboard layout. US/UK/FI enable full punctuated output.
       Other locales use plain mode (letters, digits, space only) with correct
       character mapping for that layout.
 
@@ -114,6 +114,9 @@ config ZMK_BEHAVIOR_DYNAMIC_MACRO_LOCALE_DE
 config ZMK_BEHAVIOR_DYNAMIC_MACRO_LOCALE_FR
     bool "French AZERTY (plain mode)"
 
+config ZMK_BEHAVIOR_DYNAMIC_MACRO_LOCALE_FI
+    bool "Finnish QWERTY (full punctuation)"
+
 endchoice
 
 config ZMK_BEHAVIOR_DYNAMIC_MACRO_LOCALE
@@ -122,6 +125,7 @@ config ZMK_BEHAVIOR_DYNAMIC_MACRO_LOCALE
     default 1 if ZMK_BEHAVIOR_DYNAMIC_MACRO_LOCALE_UK
     default 2 if ZMK_BEHAVIOR_DYNAMIC_MACRO_LOCALE_DE
     default 3 if ZMK_BEHAVIOR_DYNAMIC_MACRO_LOCALE_FR
+    default 4 if ZMK_BEHAVIOR_DYNAMIC_MACRO_LOCALE_FI
     default 0
 
 choice ZMK_BEHAVIOR_DYNAMIC_MACRO_FEEDBACK_STYLE_CHOICE
@@ -134,7 +138,8 @@ config ZMK_BEHAVIOR_DYNAMIC_MACRO_FEEDBACK_STYLE_FULL
 
 config ZMK_BEHAVIOR_DYNAMIC_MACRO_FEEDBACK_STYLE_ARROW
     bool "Arrow grammar (>*, >N3, -N3)"
-    depends on ZMK_BEHAVIOR_DYNAMIC_MACRO_LOCALE_US || ZMK_BEHAVIOR_DYNAMIC_MACRO_LOCALE_UK
+    depends on ZMK_BEHAVIOR_DYNAMIC_MACRO_LOCALE_US || ZMK_BEHAVIOR_DYNAMIC_MACRO_LOCALE_UK || \
+              ZMK_BEHAVIOR_DYNAMIC_MACRO_LOCALE_FI
     help
       Note: if a persisted ARROW style is loaded on a build that does not support it (e.g.
       after switching locale to DE/FR), it is silently ignored and FULL is used instead.

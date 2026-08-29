@@ -34,8 +34,8 @@ extern "C" {
 
 /*
  * Host keyboard layout. Locale is link-time-fixed (one layout per firmware),
- * so the renderer selects a static const mapping table by this value. US/UK are
- * full-punctuation locales; DE/FR are plain locales (DM_LOCALE_PLAIN) whose
+ * so the renderer selects a static const mapping table by this value. US/UK/FI
+ * are full-punctuation locales; DE/FR are plain locales (DM_LOCALE_PLAIN) whose
  * previews emit only letters, digits, and space.
  */
 typedef enum {
@@ -43,7 +43,19 @@ typedef enum {
     DM_LOCALE_UK = 1,
     DM_LOCALE_DE = 2,
     DM_LOCALE_FR = 3,
+    DM_LOCALE_FI = 4,
 } dm_locale;
+
+/*
+ * True when the locale's previews carry no punctuation inversion (letters,
+ * digits, and space only). Single source of truth for the full-punctuation vs
+ * plain split: the renderer's table selection, the feedback builder's
+ * ascii-to-HID dispatch, and the pump's ARROW-style guard all use this, so the
+ * three cannot desync when a locale is added.
+ */
+static inline bool dm_locale_is_plain(dm_locale locale) {
+    return locale != DM_LOCALE_US && locale != DM_LOCALE_UK && locale != DM_LOCALE_FI;
+}
 
 /*
  * Abstract char sink. Two adapters satisfy it:

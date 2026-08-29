@@ -392,14 +392,10 @@ void dm_feedback_knob_level(dm_feedback *f, int direction) {
     speak_knob(f, level_name(f->level));
 }
 
-static bool locale_is_plain(dm_locale locale) {
-    return locale != DM_LOCALE_US && locale != DM_LOCALE_UK;
-}
-
 void dm_feedback_knob_style_toggle(dm_feedback *f) {
     uint8_t new_style = (f->style == DM_FB_STYLE_ARROW) ? DM_FB_STYLE_FULL : DM_FB_STYLE_ARROW;
     /* ARROW requires a full-punctuation locale; the toggle is a no-op otherwise. */
-    if (new_style == DM_FB_STYLE_ARROW && locale_is_plain(f->locale)) {
+    if (new_style == DM_FB_STYLE_ARROW && dm_locale_is_plain(f->locale)) {
         dm_machine_typing_finished(f->machine);
         return;
     }
@@ -429,7 +425,7 @@ void dm_feedback_restore_level(dm_feedback *f, uint8_t level) {
 void dm_feedback_restore_style(dm_feedback *f, uint8_t style) {
     /* The ARROW-on-plain-locale rule lives here, once: a persisted ARROW on a
      * plain locale is silently kept as the default (FULL), by construction. */
-    if (style == DM_FB_STYLE_FULL || (!locale_is_plain(f->locale) && style == DM_FB_STYLE_ARROW)) {
+    if (style == DM_FB_STYLE_FULL || (!dm_locale_is_plain(f->locale) && style == DM_FB_STYLE_ARROW)) {
         f->style = style;
     }
 }

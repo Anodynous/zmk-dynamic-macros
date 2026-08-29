@@ -20,7 +20,7 @@
 
 #include <zmk-behavior-dynamic-macros/dm_feedback_build.h>
 
-/* ---- decoding sink: fb_event -> char (US/UK reverse map) ------------------ */
+/* ---- decoding sink: fb_event -> char (US/UK/FI reverse map) --------------- */
 
 struct decode_sink {
     dm_fb_sink sink;
@@ -30,11 +30,60 @@ struct decode_sink {
     int        cap;
 };
 
-/* Inverse of ascii_to_hid for the locales under test (US/UK). Enough of the map
- * to decode the message strings + previews the tests assert. */
+/* Inverse of ascii_to_hid for the locales under test (US/UK/FI). Enough of the
+ * map to decode the message strings + previews the tests assert. */
 static char decode(dm_locale locale, uint16_t kc, uint8_t mods) {
     bool shift = (mods & 0x02) != 0;
-    bool uk = (locale == DM_LOCALE_UK);
+    bool altgr = (mods & 0x04) != 0;
+    bool uk    = (locale == DM_LOCALE_UK);
+    bool fi    = (locale == DM_LOCALE_FI);
+
+    if (fi && altgr) {
+        /* FI AltGr level (inverse of ascii_to_hid_fi's AltGr entries). */
+        switch (kc) {
+        case 0x1F: return '@';
+        case 0x21: return '$';
+        case 0x24: return '{';
+        case 0x25: return '[';
+        case 0x26: return ']';
+        case 0x27: return '}';
+        case 0x2D: return '\\';
+        case 0x30: return '~';
+        case 0x64: return '|';
+        default:   return '?';
+        }
+    }
+
+    if (fi) {
+        if (kc >= 0x04 && kc <= 0x1D) {
+            return (char)((shift ? 'A' : 'a') + (kc - 0x04));
+        }
+        if (kc >= 0x1E && kc <= 0x27) {
+            static const char n[] = "1234567890";
+            static const char sFI[] = "!\"#?%&/()="; /* ? = non-ASCII currency */
+            if (!shift) {
+                return n[kc - 0x1E];
+            }
+            return sFI[kc - 0x1E];
+        }
+        switch (kc) {
+        case 0x2C: return ' ';
+        case 0x28: return '\n';
+        case 0x2D: return shift ? '?' : '+';
+        case 0x2E: return shift ? '`' : '?';
+        case 0x2F: return '?';
+        case 0x30: return shift ? '^' : '?';
+        case 0x32: return shift ? '*' : '\'';
+        case 0x33: return shift ? ';' : '?';
+        case 0x34: return shift ? ':' : '?';
+        case 0x35: return '?';
+        case 0x36: return shift ? ';' : ',';
+        case 0x37: return shift ? ':' : '.';
+        case 0x38: return shift ? '_' : '-';
+        case 0x64: return shift ? '>' : '<';
+        default:   return '?';
+        }
+    }
 
     if (kc >= 0x04 && kc <= 0x1D) {
         return (char)((shift ? 'A' : 'a') + (kc - 0x04));
@@ -369,4 +418,146 @@ ZTEST(dm_feedback_build, uk_slot_ref_roundtrips) {
     dm_fb_facts f = facts_default();
     dm_feedback_build(&spec, DM_FB_STYLE_FULL, DM_LOCALE_UK, &f, &d.sink);
     zassert_str_equal(d.buf, "[DM SAVED N3]", NULL);
+}
+
+/* ---- FI locale (full punctuation) ------------------------------------------ */
+
+ZTEST(dm_feedback_build, rec_full_fi) {
+    struct decode_sink d;
+    ds_init(&d, DM_LOCALE_FI);
+    dm_feedback_spec spec = {.kind = DM_FB_REC, .slot = -1, .slot2 = -1};
+    dm_fb_facts f = facts_default();
+    dm_feedback_build(&spec, DM_FB_STYLE_FULL, DM_LOCALE_FI, &f, &d.sink);
+    zassert_str_equal(d.buf, "[DM REC]", NULL);
+}
+
+ZTEST(dm_feedback_build, saved_no_preview_full_fi) {
+    struct decode_sink d;
+    ds_init(&d, DM_LOCALE_FI);
+    dm_feedback_spec spec = {.kind = DM_FB_SAVED, .slot = 3, .slot2 = -1, .show_preview = false};
+    dm_fb_facts f = facts_default();
+    dm_feedback_build(&spec, DM_FB_STYLE_FULL, DM_LOCALE_FI, &f, &d.sink);
+    zassert_str_equal(d.buf, "[DM SAVED N3]", NULL);
+}
+
+ZTEST(dm_feedback_build, status_header_full_fi) {
+    struct decode_sink d;
+    ds_init(&d, DM_LOCALE_FI);
+    dm_feedback_spec spec = {.kind = DM_FB_STATUS_HEADER, .slot = -1, .slot2 = -1};
+    dm_fb_facts f = facts_default();
+    f.filled_count = 2;
+    dm_feedback_build(&spec, DM_FB_STYLE_FULL, DM_LOCALE_FI, &f, &d.sink);
+    zassert_str_equal(d.buf, "[DM 2/16 NVS:0-7 RAM:8-15]", NULL);
+}
+
+/* FI is a full-punctuation locale, so ARROW is available on it. */
+ZTEST(dm_feedback_build, rec_arrow_fi) {
+    struct decode_sink d;
+    ds_init(&d, DM_LOCALE_FI);
+    dm_feedback_spec spec = {.kind = DM_FB_REC, .slot = -1, .slot2 = -1};
+    dm_fb_facts f = facts_default();
+    dm_feedback_build(&spec, DM_FB_STYLE_ARROW, DM_LOCALE_FI, &f, &d.sink);
+    zassert_str_equal(d.buf, ">*", NULL);
+}
+
+/* The FI preview round-trip: recorded FI punctuation renders literal and the
+ * re-typed characters decode back to the same FI characters. */
+ZTEST(dm_feedback_build, saved_with_preview_fi_punctuation) {
+    struct decode_sink d;
+    ds_init(&d, DM_LOCALE_FI);
+    dm_feedback_spec spec = {.kind = DM_FB_SAVED, .slot = 0, .slot2 = -1, .show_preview = true};
+    dm_fb_facts f = facts_default();
+    f.preview_event_count = 2;
+
+    bool preview = dm_feedback_build(&spec, DM_FB_STYLE_FULL, DM_LOCALE_FI, &f, &d.sink);
+    zassert_true(preview, NULL);
+    zassert_str_equal(d.buf, "[DM SAVED N0: '", NULL);
+
+    struct dm_event evs[] = {
+        key(0x36, 0, 0, 1), key(0x36, 0, 0, 0),        /* , */
+        key(0x37, 0, 0x02, 1), key(0x37, 0, 0x02, 0),  /* : (FI shift+dot) */
+    };
+    dm_render_slot_view view = {.event_count = 4, .events = evs};
+    bool done = dm_feedback_build_preview(&view, DM_LOCALE_FI, &d.sink, NULL);
+    zassert_true(done, NULL);
+    dm_feedback_build_preview_suffix(&spec, DM_FB_STYLE_FULL, DM_LOCALE_FI, &f, &d.sink);
+    zassert_str_equal(d.buf, "[DM SAVED N0: ',:']", NULL);
+}
+
+/* ---- raw keycode capture (pins exact keycode + modifiers) ------------------ */
+
+struct raw_sink {
+    dm_fb_sink sink;
+    uint16_t   kc[32];
+    uint8_t    mods[32];
+    int        n;
+};
+
+static void raw_emit(void *ctx, uint16_t kc, uint8_t mods) {
+    struct raw_sink *r = ctx;
+    if (r->n < (int)(sizeof(r->kc) / sizeof(r->kc[0]))) {
+        r->kc[r->n] = kc;
+        r->mods[r->n] = mods;
+        r->n++;
+    }
+}
+
+static bool raw_space(void *ctx, uint8_t n) {
+    (void)n;
+    struct raw_sink *r = ctx;
+    return r->n + 1 <= (int)(sizeof(r->kc) / sizeof(r->kc[0]));
+}
+
+/* '[' has no shift-level FI key: it must be typed as AltGr+8 (0x25 + LALT),
+ * and ']' as AltGr+9 (0x26 + LALT) — never a US keycode or a wrong character. */
+ZTEST(dm_feedback_build, fi_brackets_are_altgr_keycodes) {
+    struct raw_sink r = {0};
+    r.sink.emit = raw_emit;
+    r.sink.space_for = raw_space;
+    r.sink.ctx = &r;
+    dm_feedback_spec spec = {.kind = DM_FB_REC, .slot = -1, .slot2 = -1};
+    dm_fb_facts f = facts_default();
+    dm_feedback_build(&spec, DM_FB_STYLE_FULL, DM_LOCALE_FI, &f, &r.sink);
+    /* "[DM REC]" = [ D M space R E C ] */
+    zassert_equal(r.n, 8, NULL);
+    zassert_equal(r.kc[0], 0x25, NULL);
+    zassert_equal(r.mods[0] & 0x06, 0x04, NULL); /* LALT only, no shift */
+    zassert_equal(r.kc[7], 0x26, NULL);
+    zassert_equal(r.mods[7] & 0x06, 0x04, NULL); /* LALT only, no shift */
+}
+
+/* Pinned round-trip: a recorded FI ` (Shift+0x2E) and ^ (Shift+0x30) must be
+ * re-typed on the same physical keys — not 0x35 (½) or 0x2F (A-ring). The
+ * typed preview chars are the last two keycodes, before the closing quote. */
+ZTEST(dm_feedback_build, fi_backtick_caret_roundtrip_keycodes) {
+    struct raw_sink r = {0};
+    r.sink.emit = raw_emit;
+    r.sink.space_for = raw_space;
+    r.sink.ctx = &r;
+    dm_feedback_spec spec = {.kind = DM_FB_SAVED, .slot = 0, .slot2 = -1, .show_preview = true};
+    dm_fb_facts f = facts_default();
+    f.preview_event_count = 4;
+
+    bool preview = dm_feedback_build(&spec, DM_FB_STYLE_FULL, DM_LOCALE_FI, &f, &r.sink);
+    zassert_true(preview, NULL);
+
+    struct dm_event evs[] = {
+        key(0x2E, 0, 0x02, 1), key(0x2E, 0, 0x02, 0), /* ` (FI shift+acute) */
+        key(0x30, 0, 0x02, 1), key(0x30, 0, 0x02, 0), /* ^ (FI shift+diaeresis) */
+    };
+    dm_render_slot_view view = {.event_count = 4, .events = evs};
+    bool done = dm_feedback_build_preview(&view, DM_LOCALE_FI, &r.sink, NULL);
+    zassert_true(done, NULL);
+    dm_feedback_build_preview_suffix(&spec, DM_FB_STYLE_FULL, DM_LOCALE_FI, &f, &r.sink);
+
+    /* Tail: ` ^ ' ] — the typed preview chars, then the closing quote and bracket. */
+    zassert_true(r.n >= 4, NULL);
+    zassert_equal(r.kc[r.n - 4], 0x2E, NULL);
+    zassert_equal(r.mods[r.n - 4] & 0x06, 0x02, NULL); /* shift only */
+    zassert_equal(r.kc[r.n - 3], 0x30, NULL);
+    zassert_equal(r.mods[r.n - 3] & 0x06, 0x02, NULL); /* shift only */
+    zassert_equal(r.kc[r.n - 2], 0x32, NULL); /* closing ' at the FI apostrophe key */
+    zassert_equal(r.mods[r.n - 2] & 0x06, 0x00, NULL);
+    zassert_equal(r.kc[r.n - 1], 0x26, NULL);
+    zassert_equal(r.mods[r.n - 1] & 0x06, 0x04, NULL); /* LALT only */
 }

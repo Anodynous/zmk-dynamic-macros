@@ -16,19 +16,19 @@
 
 #include <zmk-behavior-dynamic-macros/dm_feedback_build.h>
 
-/* LSHIFT modifier bit (HID). The builder only ever needs shift for ASCII. */
+/* LSHIFT/LALT modifier bits (HID). The builder only needs shift for ASCII —
+ * plus AltGr (LALT) on FI, where a few scaffolding characters ([ ] { } @ $ ~
+ * \ |) live on the third layout level and have no shift-level key. */
 #define FB_MOD_SHIFT 0x02
+#define FB_MOD_LALT  0x04
 
 /* ---- ASCII -> HID, per locale --------------------------------------------- */
 
 struct hid_keycode {
     uint8_t keycode;
     bool    shift;
+    bool    altgr; /* AltGr (LALT) level; FI-only in practice */
 };
-
-static bool locale_is_plain(dm_locale locale) {
-    return locale != DM_LOCALE_US && locale != DM_LOCALE_UK;
-}
 
 static struct hid_keycode letter_to_hid(dm_locale locale, char c, bool upper) {
     uint8_t keycode = 0x04 + (uint8_t)(c - 'a');
@@ -52,15 +52,61 @@ static struct hid_keycode letter_to_hid(dm_locale locale, char c, bool upper) {
             keycode = 0x33;
         }
     }
-    return (struct hid_keycode){.keycode = keycode, .shift = upper};
+    return (struct hid_keycode){.keycode = keycode, .shift = upper, .altgr = false};
 }
 
 static struct hid_keycode digit_to_hid(dm_locale locale, char c) {
     uint8_t keycode = (c == '0') ? 0x27 : (uint8_t)(0x1E + (c - '1'));
     if (locale == DM_LOCALE_FR) {
-        return (struct hid_keycode){.keycode = keycode, .shift = true};
+        return (struct hid_keycode){.keycode = keycode, .shift = true, .altgr = false};
     }
-    return (struct hid_keycode){.keycode = keycode, .shift = false};
+    return (struct hid_keycode){.keycode = keycode, .shift = false, .altgr = false};
+}
+
+/* FI punctuation as the exact inverse of keymap_fi in dm_render.c, so a
+ * re-typed preview reproduces the recorded character on a Finnish host. Where
+ * two keys share a glyph (e.g. Shift+O-dia and Shift+comma both give ';'), the
+ * canonical key is the one the reference FI layout names for that glyph, so
+ * every round-trip lands on a key that produces the same character. The AltGr
+ * entries are the scaffolding characters with no shift-level FI key. */
+static struct hid_keycode ascii_to_hid_fi(char c) {
+    switch (c) {
+    /* shift level */
+    case '!':  return (struct hid_keycode){0x1E, true, false};
+    case '"':  return (struct hid_keycode){0x1F, true, false};
+    case '#':  return (struct hid_keycode){0x20, true, false};
+    case '%':  return (struct hid_keycode){0x22, true, false};
+    case '&':  return (struct hid_keycode){0x23, true, false};
+    case '/':  return (struct hid_keycode){0x24, true, false};
+    case '(':  return (struct hid_keycode){0x25, true, false};
+    case ')':  return (struct hid_keycode){0x26, true, false};
+    case '=':  return (struct hid_keycode){0x27, true, false};
+    case '+':  return (struct hid_keycode){0x2D, false, false};
+    case '?':  return (struct hid_keycode){0x2D, true, false};
+    case '`':  return (struct hid_keycode){0x2E, true, false};
+    case '^':  return (struct hid_keycode){0x30, true, false};
+    case '*':  return (struct hid_keycode){0x32, true, false};
+    case '\'': return (struct hid_keycode){0x32, false, false};
+    case ';':  return (struct hid_keycode){0x36, true, false};
+    case ':':  return (struct hid_keycode){0x37, true, false};
+    case ',':  return (struct hid_keycode){0x36, false, false};
+    case '.':  return (struct hid_keycode){0x37, false, false};
+    case '-':  return (struct hid_keycode){0x38, false, false};
+    case '_':  return (struct hid_keycode){0x38, true, false};
+    case '<':  return (struct hid_keycode){0x64, false, false};
+    case '>':  return (struct hid_keycode){0x64, true, false};
+    /* AltGr level */
+    case '[':  return (struct hid_keycode){0x25, false, true};
+    case ']':  return (struct hid_keycode){0x26, false, true};
+    case '{':  return (struct hid_keycode){0x24, false, true};
+    case '}':  return (struct hid_keycode){0x27, false, true};
+    case '@':  return (struct hid_keycode){0x1F, false, true};
+    case '$':  return (struct hid_keycode){0x21, false, true};
+    case '~':  return (struct hid_keycode){0x30, false, true};
+    case '\\': return (struct hid_keycode){0x2D, false, true};
+    case '|':  return (struct hid_keycode){0x64, false, true};
+    default:   return (struct hid_keycode){0x2C, false, false};
+    }
 }
 
 static struct hid_keycode ascii_to_hid(dm_locale locale, char c) {
@@ -75,61 +121,76 @@ static struct hid_keycode ascii_to_hid(dm_locale locale, char c) {
     }
 
     switch (c) {
-    case ' ':  return (struct hid_keycode){0x2C, false};
-    case '\n': return (struct hid_keycode){0x28, false};
+    case ' ':  return (struct hid_keycode){0x2C, false, false};
+    case '\n': return (struct hid_keycode){0x28, false, false};
     default:   break;
     }
 
-    if (locale_is_plain(locale)) {
-        return (struct hid_keycode){0x2C, false}; /* space for unknown on plain */
+    if (dm_locale_is_plain(locale)) {
+        return (struct hid_keycode){0x2C, false, false}; /* space for unknown on plain */
+    }
+
+    if (locale == DM_LOCALE_FI) {
+        return ascii_to_hid_fi(c);
     }
 
     bool uk = (locale == DM_LOCALE_UK);
     switch (c) {
-    case '[':  return (struct hid_keycode){0x2F, false};
-    case ']':  return (struct hid_keycode){0x30, false};
-    case '\'': return (struct hid_keycode){0x34, false};
-    case '"':  return uk ? (struct hid_keycode){0x1F, true} : (struct hid_keycode){0x34, true};
-    case ':':  return (struct hid_keycode){0x33, true};
-    case ';':  return (struct hid_keycode){0x33, false};
-    case '+':  return (struct hid_keycode){0x2E, true};
-    case '=':  return (struct hid_keycode){0x2E, false};
-    case '-':  return (struct hid_keycode){0x2D, false};
-    case '_':  return (struct hid_keycode){0x2D, true};
-    case '.':  return (struct hid_keycode){0x37, false};
-    case ',':  return (struct hid_keycode){0x36, false};
-    case '<':  return (struct hid_keycode){0x36, true};
-    case '>':  return (struct hid_keycode){0x37, true};
-    case '/':  return (struct hid_keycode){0x38, false};
-    case '?':  return (struct hid_keycode){0x38, true};
-    case '!':  return (struct hid_keycode){0x1E, true};
-    case '@':  return uk ? (struct hid_keycode){0x34, true} : (struct hid_keycode){0x1F, true};
-    case '#':  return uk ? (struct hid_keycode){0x32, false} : (struct hid_keycode){0x20, true};
-    case '$':  return (struct hid_keycode){0x21, true};
-    case '%':  return (struct hid_keycode){0x22, true};
-    case '^':  return (struct hid_keycode){0x23, true};
-    case '&':  return (struct hid_keycode){0x24, true};
-    case '*':  return (struct hid_keycode){0x25, true};
-    case '(':  return (struct hid_keycode){0x26, true};
-    case ')':  return (struct hid_keycode){0x27, true};
-    case '{':  return (struct hid_keycode){0x2F, true};
-    case '}':  return (struct hid_keycode){0x30, true};
-    case '\\': return uk ? (struct hid_keycode){0x64, false} : (struct hid_keycode){0x31, false};
-    case '|':  return uk ? (struct hid_keycode){0x64, true} : (struct hid_keycode){0x31, true};
-    case '`':  return (struct hid_keycode){0x35, false};
-    case '~':  return uk ? (struct hid_keycode){0x32, true} : (struct hid_keycode){0x35, true};
-    default:   return (struct hid_keycode){0x2C, false};
+    case '[':  return (struct hid_keycode){0x2F, false, false};
+    case ']':  return (struct hid_keycode){0x30, false, false};
+    case '\'': return (struct hid_keycode){0x34, false, false};
+    case '"':  return uk ? (struct hid_keycode){0x1F, true, false} : (struct hid_keycode){0x34, true, false};
+    case ':':  return (struct hid_keycode){0x33, true, false};
+    case ';':  return (struct hid_keycode){0x33, false, false};
+    case '+':  return (struct hid_keycode){0x2E, true, false};
+    case '=':  return (struct hid_keycode){0x2E, false, false};
+    case '-':  return (struct hid_keycode){0x2D, false, false};
+    case '_':  return (struct hid_keycode){0x2D, true, false};
+    case '.':  return (struct hid_keycode){0x37, false, false};
+    case ',':  return (struct hid_keycode){0x36, false, false};
+    case '<':  return (struct hid_keycode){0x36, true, false};
+    case '>':  return (struct hid_keycode){0x37, true, false};
+    case '/':  return (struct hid_keycode){0x38, false, false};
+    case '?':  return (struct hid_keycode){0x38, true, false};
+    case '!':  return (struct hid_keycode){0x1E, true, false};
+    case '@':  return uk ? (struct hid_keycode){0x34, true, false} : (struct hid_keycode){0x1F, true, false};
+    case '#':  return uk ? (struct hid_keycode){0x32, false, false} : (struct hid_keycode){0x20, true, false};
+    case '$':  return (struct hid_keycode){0x21, true, false};
+    case '%':  return (struct hid_keycode){0x22, true, false};
+    case '^':  return (struct hid_keycode){0x23, true, false};
+    case '&':  return (struct hid_keycode){0x24, true, false};
+    case '*':  return (struct hid_keycode){0x25, true, false};
+    case '(':  return (struct hid_keycode){0x26, true, false};
+    case ')':  return (struct hid_keycode){0x27, true, false};
+    case '{':  return (struct hid_keycode){0x2F, true, false};
+    case '}':  return (struct hid_keycode){0x30, true, false};
+    case '\\': return uk ? (struct hid_keycode){0x64, false, false} : (struct hid_keycode){0x31, false, false};
+    case '|':  return uk ? (struct hid_keycode){0x64, true, false} : (struct hid_keycode){0x31, true, false};
+    case '`':  return (struct hid_keycode){0x35, false, false};
+    case '~':  return uk ? (struct hid_keycode){0x32, true, false} : (struct hid_keycode){0x35, true, false};
+    default:   return (struct hid_keycode){0x2C, false, false};
     }
 }
 
 /* ---- low-level sink emits ------------------------------------------------- */
+
+static uint8_t hid_mods(const struct hid_keycode *hk) {
+    uint8_t mods = 0;
+    if (hk->shift) {
+        mods |= FB_MOD_SHIFT;
+    }
+    if (hk->altgr) {
+        mods |= FB_MOD_LALT;
+    }
+    return mods;
+}
 
 static void emit_char(dm_locale locale, dm_fb_sink *sink, char c) {
     if (!sink->space_for(sink->ctx, 1)) {
         return;
     }
     struct hid_keycode hk = ascii_to_hid(locale, c);
-    sink->emit(sink->ctx, hk.keycode, hk.shift ? FB_MOD_SHIFT : 0);
+    sink->emit(sink->ctx, hk.keycode, hid_mods(&hk));
 }
 
 static void emit_str(dm_locale locale, dm_fb_sink *sink, const char *s) {
@@ -226,7 +287,7 @@ static const struct dm_msg_table *msg(dm_fb_style style, dm_locale locale) {
     if (style == DM_FB_STYLE_ARROW) {
         return &msg_arrow;
     }
-    return locale_is_plain(locale) ? &msg_full_plain : &msg_full_punct;
+    return dm_locale_is_plain(locale) ? &msg_full_plain : &msg_full_punct;
 }
 
 static char slot_prefix(const dm_fb_facts *facts, int slot) {
@@ -257,7 +318,7 @@ static void build_slot_empty(const struct dm_msg_table *m, dm_fb_style style, dm
 static void build_slot_full_suffix(dm_fb_style style, dm_locale locale, dm_fb_sink *sink) {
     if (style == DM_FB_STYLE_ARROW) {
         emit_char(locale, sink, '%');
-    } else if (locale_is_plain(locale)) {
+    } else if (dm_locale_is_plain(locale)) {
         emit_str(locale, sink, " FULL");
     } else {
         emit_str(locale, sink, " FULL]");
@@ -286,7 +347,7 @@ static void build_status_slot_label(dm_fb_style style, dm_locale locale, const d
     } else {
         emit_char(locale, sink, slot_prefix(facts, slot));
         emit_number(locale, sink, slot);
-        if (locale_is_plain(locale)) {
+        if (dm_locale_is_plain(locale)) {
             emit_char(locale, sink, ' ');
         } else {
             emit_str(locale, sink, ": ");
@@ -304,7 +365,7 @@ static void build_slot_range(dm_fb_style style, dm_locale locale, const dm_fb_fa
             emit_str(locale, sink, " R");
             emit_number(locale, sink, nvs);
             emit_char(locale, sink, '-');
-        } else if (locale_is_plain(locale)) {
+        } else if (dm_locale_is_plain(locale)) {
             emit_str(locale, sink, " NVS 0 TO ");
             emit_number(locale, sink, nvs - 1);
             emit_str(locale, sink, " RAM ");
@@ -329,13 +390,13 @@ static void build_status_header(dm_fb_style style, dm_locale locale, const dm_fb
                                dm_fb_sink *sink) {
     if (style == DM_FB_STYLE_ARROW) {
         emit_str(locale, sink, "==");
-    } else if (locale_is_plain(locale)) {
+    } else if (dm_locale_is_plain(locale)) {
         emit_str(locale, sink, "DM ");
     } else {
         emit_str(locale, sink, "[DM ");
     }
     emit_number(locale, sink, facts->filled_count);
-    if (style != DM_FB_STYLE_ARROW && locale_is_plain(locale)) {
+    if (style != DM_FB_STYLE_ARROW && dm_locale_is_plain(locale)) {
         emit_str(locale, sink, " OF ");
     } else {
         emit_char(locale, sink, '/');
@@ -346,7 +407,7 @@ static void build_status_header(dm_fb_style style, dm_locale locale, const dm_fb
     } else {
         build_slot_range(style, locale, facts, sink);
     }
-    if (style != DM_FB_STYLE_ARROW && !locale_is_plain(locale)) {
+    if (style != DM_FB_STYLE_ARROW && !dm_locale_is_plain(locale)) {
         emit_char(locale, sink, ']');
     }
     /* No trailing newline: status is a single line, the slots are joined after the
@@ -397,7 +458,7 @@ bool dm_feedback_build(const dm_feedback_spec *spec, dm_fb_style style, dm_local
     case DM_FB_OVERFLOW:
         /* full message: arrow "!%", full "[DM FULL]"/"DM FULL" */
         emit_str(locale, sink,
-                 style == DM_FB_STYLE_ARROW ? "!%" : (locale_is_plain(locale) ? "DM FULL" : "[DM FULL]"));
+                 style == DM_FB_STYLE_ARROW ? "!%" : (dm_locale_is_plain(locale) ? "DM FULL" : "[DM FULL]"));
         return false;
 
     case DM_FB_MOVE_PROMPT: emit_str(locale, sink, m->mov); return false;
@@ -478,7 +539,7 @@ bool dm_feedback_build(const dm_feedback_spec *spec, dm_fb_style style, dm_local
         }
         if (spec->show_preview) {
             /* open quote: skipped for plain locale non-arrow */
-            if (style == DM_FB_STYLE_ARROW || !locale_is_plain(locale)) {
+            if (style == DM_FB_STYLE_ARROW || !dm_locale_is_plain(locale)) {
                 emit_char(locale, sink, '\'');
             }
             return true; /* preview follows, then the count suffix */
@@ -501,7 +562,7 @@ struct preview_adapter {
 static void preview_emit_char(void *ctx, char c) {
     struct preview_adapter *pa = ctx;
     struct hid_keycode hk = ascii_to_hid(pa->locale, c);
-    pa->fb->emit(pa->fb->ctx, hk.keycode, hk.shift ? FB_MOD_SHIFT : 0);
+    pa->fb->emit(pa->fb->ctx, hk.keycode, hid_mods(&hk));
 }
 
 static bool preview_space_for(void *ctx, uint8_t n) {
@@ -523,7 +584,7 @@ void dm_feedback_build_preview_suffix(const dm_feedback_spec *spec, dm_fb_style 
     if (spec->kind == DM_FB_STATUS_SLOT) {
         /* "' (N)" (arrow/punct) or " N EVENTS" (plain non-arrow) — no trailing
          * newline; the next slot's leading separator provides the join. */
-        if (style != DM_FB_STYLE_ARROW && locale_is_plain(locale)) {
+        if (style != DM_FB_STYLE_ARROW && dm_locale_is_plain(locale)) {
             emit_char(locale, sink, ' ');
             emit_number(locale, sink, facts->preview_event_count);
             emit_str(locale, sink, " EVENTS");

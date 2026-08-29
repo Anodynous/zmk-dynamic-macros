@@ -8,6 +8,19 @@ release line it targets, while the **patch** is the module's own.
 
 ## [Unreleased]
 
+### Added
+
+- Finnish keyboard locale (`ZMK_BEHAVIOR_DYNAMIC_MACRO_LOCALE_FI`), a
+  full-punctuation locale like US/UK: the preview renderer inverts every
+  shift-level Finnish key — the ISO punctuation positions (`'` at 0x32,
+  `<`/`>` at 0x64) and the Finnish number row (e.g. Shift+7 = `/`, Shift+0 =
+  `=`) — and typed feedback reproduces each character with the exact FI
+  keycode. Keys that produce a non-ASCII glyph on the layout (A-ring,
+  diaeresis, O-dia, A-dia, section, dead acute) render as a token. The
+  scaffolding characters with no shift-level FI key (`[`, `]`, `{`, `}`,
+  `@`, `$`, `~`, `\`, `|`) are typed via AltGr (LALT). ARROW feedback style is
+  available on FI builds, as every arrow-grammar character is FI-reachable.
+
 ## [0.3.1] - 2026-06-07
 
 ### Fixed

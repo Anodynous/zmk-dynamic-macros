@@ -230,9 +230,9 @@ Toggles between the two feedback styles:
 | FULL  | `[DM SAVED N0: 'Hello']` |
 | ARROW | `>N0:'Hello'` |
 
-**Requires US or UK locale.** The ARROW style uses punctuation characters
-(`>`, `-`, `!`, `?`, `%`) that are not available in DE/FR plain mode. Pressing
-this key on a DE or FR build is a no-op.
+**Requires a full-punctuation locale (US, UK, or FI).** The ARROW style uses
+punctuation characters (`>`, `-`, `!`, `?`, `%`) that are not available in
+DE/FR plain mode. Pressing this key on a DE or FR build is a no-op.
 
 **Feedback:** `[DM FB:ARROW]` or `>FB:FULL` (typed in the style just switched *to*)
 

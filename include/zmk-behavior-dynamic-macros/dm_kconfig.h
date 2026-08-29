@@ -91,9 +91,9 @@
 /* Whether any typed output is compiled in at all. */
 #define DM_TYPING_ENABLED (DM_FEEDBACK_LEVEL > DM_FEEDBACK_OFF || DM_STATUS_DETAIL > DM_STATUS_OFF)
 
-/* Locale as the Kconfig integer (0..3). The dm_locale ENUM and its DM_LOCALE_US/
- * UK/DE/FR names live in dm_render.h; this is only the selected value, cast to
- * dm_locale at the boundary. */
+/* Locale as the Kconfig integer (0..4). The dm_locale ENUM and its DM_LOCALE_US/
+ * UK/DE/FR/FI names live in dm_render.h; this is only the selected value, cast
+ * to dm_locale at the boundary. */
 #if DM_TYPING_ENABLED
 #define DM_LOCALE CONFIG_ZMK_BEHAVIOR_DYNAMIC_MACRO_LOCALE
 #else

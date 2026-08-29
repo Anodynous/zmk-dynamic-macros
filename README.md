@@ -11,7 +11,7 @@ A [ZMK](https://zmk.dev/) module for dynamic macro recording and playback. Recor
 - **Move** macros between slots (promote RAM to NVS, reorganize, etc.)
 - **Chain** existing macros into new recordings
 - **Status** output showing slot contents
-- **Locale support** for US, UK, German, and French keyboards
+- **Locale support** for US, UK, German, French, and Finnish keyboards
 - **Event system** for display widgets and custom integrations
 
 ## Use Cases
@@ -244,19 +244,20 @@ When enabled, feedback text is automatically erased by emitting backspace keycod
 | `LOCALE_UK` | UK QWERTY, full punctuation          |
 | `LOCALE_DE` | German QWERTZ, plain mode          |
 | `LOCALE_FR` | French AZERTY, plain mode          |
+| `LOCALE_FI` | Finnish QWERTY, full punctuation   |
 
-Feedback works by typing HID keycodes into the focused application. Punctuation characters like `[`, `]`, `:`, `'` occupy different physical keys on each keyboard layout — a US bracket keycode produces a different character on a German or French host. DE and FR locales therefore use plain mode (letters, digits, spaces only) to avoid garbled output. UK uses full punctuation with correct mappings for the 6 keys that differ from US (`"`, `@`, `#`, `~`, `\`, `|`). Letter and digit mappings are adjusted per locale (e.g. Y/Z swap for German QWERTZ, AZERTY positions for French).
+Feedback works by typing HID keycodes into the focused application. Punctuation characters like `[`, `]`, `:`, `'` occupy different physical keys on each keyboard layout — a US bracket keycode produces a different character on a German or French host. DE and FR locales therefore use plain mode (letters, digits, spaces only) to avoid garbled output. UK and FI use full punctuation with correct per-layout mappings: UK differs from US on 6 keys (`"`, `@`, `#`, `~`, `\`, `|`); FI uses the ISO punctuation positions (`'` at 0x32, `<`/`>` at 0x64) and the Finnish number row, with the third-level characters (`[`, `]`, `{`, `}`, `@`, `$`, `~`, `\`, `|`) typed via AltGr. Letter and digit mappings are adjusted per locale (e.g. Y/Z swap for German QWERTZ, AZERTY positions for French).
 
 #### Locale Feature Matrix
 
-| Feature | US | UK | DE | FR |
-| ------- | -- | -- | -- | -- |
-| FULL style punctuation (`[DM SAVED N3]`) | Yes | Yes | No (plain) | No (plain) |
-| ARROW style | Yes | Yes | No | No |
-| Preview rendering (printable chars) | Accurate | US layout assumed | US layout assumed | US layout assumed |
-| Feedback level adjustment | Yes | Yes | Yes | Yes |
-| Auto-erase | Yes | Yes | Yes | Yes |
-| Status output | Full | Full | Plain | Plain |
+| Feature | US | UK | DE | FR | FI |
+| ------- | -- | -- | -- | -- | -- |
+| FULL style punctuation (`[DM SAVED N3]`) | Yes | Yes | No (plain) | No (plain) | Yes |
+| ARROW style | Yes | Yes | No | No | Yes |
+| Preview rendering (printable chars) | Accurate | US layout assumed | US layout assumed | US layout assumed | Accurate |
+| Feedback level adjustment | Yes | Yes | Yes | Yes | Yes |
+| Auto-erase | Yes | Yes | Yes | Yes | Yes |
+| Status output | Full | Full | Plain | Plain | Full |
 
 ### Status Detail
 
@@ -445,7 +446,7 @@ Runs on central half only. Both halves' keystrokes are captured during recording
 | `[DM SAVE QUEUE FULL N0]` | Too many storage operations queued | Wait a moment and retry. Occurs when rapidly saving/deleting multiple NVS slots. |
 | Slot shows occupied but was deleted | NVS delete still in progress | The slot is marked pending-delete and will clear shortly. It cannot be played or assigned during this time. |
 | Feedback not appearing | Feedback level set to OFF | Press `DM_FEEDBACK_INC` to raise the level, or set `FEEDBACK_VERBOSE` in .conf. |
-| Wrong characters in feedback | Non-US locale with US punctuation | Non-US locales use plain mode. Set `LOCALE_US` for full punctuation output. |
+| Wrong characters in feedback | Non-US locale with US punctuation | DE/FR use plain mode; US/UK/FI use full punctuation. Set `LOCALE_US`, `LOCALE_UK`, or `LOCALE_FI` for full punctuation output. |
 | Macro plays wrong keys | Recorded on different layer/layout | Macros record HID keycodes, not physical positions. Replay on the same layout used during recording. |
 
 ### Compatibility

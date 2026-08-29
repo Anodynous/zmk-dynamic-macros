@@ -172,6 +172,141 @@ ZTEST(dm_render, de_plain_shifted_punctuation_is_token) {
     zassert_str_equal(s.buf, "LSFT ,", "DE plain shifted comma -> token path, not literal '<'");
 }
 
+/* ---- Finnish (full punctuation) locale ------------------------------------- */
+
+#define KC_7 0x24
+#define KC_4 0x21
+#define KC_0 0x27
+#define KC_QUOT_FI 0x32 /* ' key at the ISO NON_US_HASH position */
+#define KC_ODIA_FI  0x33 /* O-dia key at the ISO semicolon position */
+#define KC_LABK_FI  0x64 /* < > key at the ISO NON_US_BSLH position */
+
+/* FI: the number row is Finnish, not US: Shift+7 is '/', not '&'. */
+ZTEST(dm_render, fi_shift7_is_slash) {
+    struct dm_event evs[] = {
+        key(KC_LSFT, 0, 0, 1),
+        key(KC_7, 0, MOD_LSFT, 1),
+        key(KC_7, 0, MOD_LSFT, 0),
+        key(KC_LSFT, 0, 0, 0),
+    };
+    struct buf_sink s;
+    render_into(&s, evs, 4, DM_LOCALE_FI);
+    zassert_str_equal(s.buf, "/", "FI Shift+7 is the printable '/'");
+}
+
+/* FI: Shift+0 is '=', not ')' as on US. */
+ZTEST(dm_render, fi_shift0_is_equal) {
+    struct dm_event evs[] = {
+        key(KC_LSFT, 0, 0, 1),
+        key(KC_0, 0, MOD_LSFT, 1),
+        key(KC_0, 0, MOD_LSFT, 0),
+        key(KC_LSFT, 0, 0, 0),
+    };
+    struct buf_sink s;
+    render_into(&s, evs, 4, DM_LOCALE_FI);
+    zassert_str_equal(s.buf, "=", "FI Shift+0 is the printable '='");
+}
+
+/* FI: Shift+4 is the currency sign (non-ASCII) -> token, never a wrong char. */
+ZTEST(dm_render, fi_shift4_is_token_not_currency) {
+    struct dm_event evs[] = {
+        key(KC_LSFT, 0, 0, 1),
+        key(KC_4, 0, MOD_LSFT, 1),
+        key(KC_4, 0, MOD_LSFT, 0),
+        key(KC_LSFT, 0, 0, 0),
+    };
+    struct buf_sink s;
+    render_into(&s, evs, 4, DM_LOCALE_FI);
+    zassert_str_equal(s.buf, "<LSFT+4>", "FI Shift+4 (currency) renders as a token");
+}
+
+/* FI: the ' key sits at 0x32 (NON_US_HASH) and renders as a literal apostrophe. */
+ZTEST(dm_render, fi_apostrophe_key_is_literal) {
+    struct dm_event evs[] = {
+        key(KC_QUOT_FI, 0, 0, 1),
+        key(KC_QUOT_FI, 0, 0, 0),
+    };
+    struct buf_sink s;
+    render_into(&s, evs, 2, DM_LOCALE_FI);
+    zassert_str_equal(s.buf, "'", "FI apostrophe key (0x32) renders literally");
+}
+
+/* FI: the < > key sits at 0x64 (NON_US_BSLH); shifted it is the literal '>'. */
+ZTEST(dm_render, fi_angle_key_shifted_is_literal) {
+    struct dm_event evs[] = {
+        key(KC_LSFT, 0, 0, 1),
+        key(KC_LABK_FI, 0, MOD_LSFT, 1),
+        key(KC_LABK_FI, 0, MOD_LSFT, 0),
+        key(KC_LSFT, 0, 0, 0),
+    };
+    struct buf_sink s;
+    render_into(&s, evs, 4, DM_LOCALE_FI);
+    zassert_str_equal(s.buf, ">", "FI Shift+angle-key (0x64) renders the literal '>'");
+}
+
+/* FI: unshifted O-dia (0x33) is a non-ASCII glyph -> token, like UK Shift+3. */
+ZTEST(dm_render, fi_odia_is_token) {
+    struct dm_event evs[] = {
+        key(KC_ODIA_FI, 0, 0, 1),
+        key(KC_ODIA_FI, 0, 0, 0),
+    };
+    struct buf_sink s;
+    render_into(&s, evs, 2, DM_LOCALE_FI);
+    zassert_str_equal(s.buf, "<;>", "FI O-dia key renders as a token, not a char");
+}
+
+/* FI: ` is Shift+0x2E (the dead-acute key), per FI_GRV = LS(FI_ACUT). */
+ZTEST(dm_render, fi_backtick_is_shift_acut) {
+    struct dm_event evs[] = {
+        key(KC_LSFT, 0, 0, 1),
+        key(0x2E, 0, MOD_LSFT, 1),
+        key(0x2E, 0, MOD_LSFT, 0),
+        key(KC_LSFT, 0, 0, 0),
+    };
+    struct buf_sink s;
+    render_into(&s, evs, 4, DM_LOCALE_FI);
+    zassert_str_equal(s.buf, "`", "FI Shift+0x2E (acute) is the printable backtick");
+}
+
+/* FI: ^ is Shift+0x30 (the dead-diaeresis key), per FI_CIRC = LS(FI_DIAE). */
+ZTEST(dm_render, fi_caret_is_shift_diae) {
+    struct dm_event evs[] = {
+        key(KC_LSFT, 0, 0, 1),
+        key(0x30, 0, MOD_LSFT, 1),
+        key(0x30, 0, MOD_LSFT, 0),
+        key(KC_LSFT, 0, 0, 0),
+    };
+    struct buf_sink s;
+    render_into(&s, evs, 4, DM_LOCALE_FI);
+    zassert_str_equal(s.buf, "^", "FI Shift+0x30 (diaeresis) is the printable caret");
+}
+
+/* FI: Shift+0x2F (A-ring) has no shift-level glyph -> token, never a wrong char. */
+ZTEST(dm_render, fi_ring_shifted_is_token) {
+    struct dm_event evs[] = {
+        key(KC_LSFT, 0, 0, 1),
+        key(0x2F, 0, MOD_LSFT, 1),
+        key(0x2F, 0, MOD_LSFT, 0),
+        key(KC_LSFT, 0, 0, 0),
+    };
+    struct buf_sink s;
+    render_into(&s, evs, 4, DM_LOCALE_FI);
+    zassert_str_equal(s.buf, "<LSFT+[>", "FI Shift+0x2F (A-ring) renders as a token");
+}
+
+/* FI: Shift+0x35 (section) is the non-ASCII half sign -> token, never a wrong char. */
+ZTEST(dm_render, fi_section_shifted_is_token) {
+    struct dm_event evs[] = {
+        key(KC_LSFT, 0, 0, 1),
+        key(0x35, 0, MOD_LSFT, 1),
+        key(0x35, 0, MOD_LSFT, 0),
+        key(KC_LSFT, 0, 0, 0),
+    };
+    struct buf_sink s;
+    render_into(&s, evs, 4, DM_LOCALE_FI);
+    zassert_str_equal(s.buf, "<LSFT+`>", "FI Shift+0x35 (section) renders as a token");
+}
+
 /* ---- pause/resume cursor ---------------------------------------------------
  *
  * The ring sink pauses the walk on backpressure and re-enters after drain. The
