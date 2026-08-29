@@ -24,6 +24,7 @@ Two test layers run in CI:
 | `record_timeout` | Pending-assign auto-cancels after the timeout |
 | `record_while_playing` | REC is ignored while a slot is playing back |
 | `stop_idle` | STP outside RECORDING is a no-op |
+| `toggle` | One `DM_TOG` key starts and stops recording; a press while the take awaits assignment starts a fresh recording (the take is discarded) |
 | `play_empty` | Playing an unassigned slot is rejected |
 | `assign_occupied` | Assign onto an occupied slot is rejected, pending state preserved |
 | `assign_cancel` | Pending assign cancelled by the timeout |
@@ -54,6 +55,7 @@ Two test layers run in CI:
 | Test | Validates |
 |------|-----------|
 | `record_play_feedback` | Feedback typing during record/assign/play |
+| `toggle_feedback` | `DM_TOG` types the same feedback as `DM_REC`/`DM_STP` across a start/stop/restart/save/play cycle |
 | `feedback_levels` | Output gated by feedback level |
 | `feedback_level_toggle` | `DM_FEEDBACK_INC`/`_DEC` adjust and confirm the level |
 | `style_toggle` | `DM_STYLE_TOGGLE` switches FULL/ARROW grammar |
@@ -69,6 +71,7 @@ Two test layers run in CI:
 | Test | Validates |
 |------|-----------|
 | `record_play_events` | Notification stream for record/assign/play |
+| `toggle_events` | `DM_TOG` raises the same notification stream as `DM_REC`/`DM_STP` (start/stop/restart/save/play) |
 | `rec_stop_empty` | Empty recording discarded; `ERROR_NO_RECORDING` fires |
 | `nvs_delete_events` | NVS delete raises `DELETED` exactly once, deferred to completion; `DELETE_PROMPT` on mode entry |
 | `move_events` | Move full flow: `MOVE_PROMPT` → `MOVE_SRC_SELECTED` (slot=src) → `MOVED` (slot=dst, slot2=src) |

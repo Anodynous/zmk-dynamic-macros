@@ -22,6 +22,7 @@ commands) or `0` for commands that don't use it — the compiler enforces this.
 | `DM_FEEDBACK_DEC` | 9 | `0` | Decrease feedback verbosity |
 | `DM_STYLE_TOGGLE` | 10 | `0` | Toggle FULL / ARROW feedback style |
 | `DM_ERASE_TOGGLE` | 11 | `0` | Toggle auto-erase on / off |
+| `DM_TOG` | 13 | `0` | Toggle recording (start / stop) |
 
 ---
 
@@ -53,6 +54,28 @@ Ends the current recording and transitions to ASSIGN_PENDING, waiting for a
 slot key to save to. If pressed with no active recording the press is ignored.
 
 **Feedback:** `[DM STOP]` / `>.`
+
+---
+
+### `DM_TOG` — Toggle recording
+
+```dts
+&dm DM_TOG 0
+```
+
+A single key for both ends of a recording: while the machine is recording it
+acts as `DM_STP`, otherwise it acts as `DM_REC` — so the first press after
+power-on starts recording, the next press stops it, and the press after that
+starts a fresh recording again.
+
+The toggle is decided purely by the current machine state, and each press then
+runs the normal `DM_REC` / `DM_STP` path — so it inherits their rules exactly:
+a press while a finished-but-unassigned recording awaits slot assignment starts
+a fresh recording (the unassigned take is discarded, as with `DM_REC`), a press
+while delete/move pending or while a macro plays is a no-op, and a press while
+feedback is being typed is ignored until it finishes.
+
+**Feedback:** identical to `DM_REC` / `DM_STP` for the transition it triggers.
 
 ---
 

@@ -91,8 +91,8 @@ BUILD_ASSERT(DT_NUM_INST_STATUS_OKAY(DT_DRV_COMPAT) <= 1,
 
 #define DM_VALIDATE_CMD_RANGE(idx, layer)                                                           \
     COND_CODE_1(DM_IS_DM_BINDING(idx, layer),                                                       \
-                (BUILD_ASSERT(DT_PHA_BY_IDX(layer, bindings, idx, param1) <= DM_TEST_RELOAD,        \
-                              "Dynamic macro param1 is not a valid command (expected 0-12)");),     \
+                (BUILD_ASSERT(DT_PHA_BY_IDX(layer, bindings, idx, param1) <= DM_TOG,                \
+                              "Dynamic macro param1 is not a valid command (expected 0-13)");),     \
                 ())
 
 #define DM_VALIDATE_CMD_NO_PARAM2(idx, layer, command)                                              \
@@ -118,7 +118,8 @@ BUILD_ASSERT(DT_NUM_INST_STATUS_OKAY(DT_DRV_COMPAT) <= 1,
     DM_VALIDATE_CMD_NO_PARAM2(idx, layer, DM_FEEDBACK_DEC)                                          \
     DM_VALIDATE_CMD_NO_PARAM2(idx, layer, DM_STYLE_TOGGLE)                                          \
     DM_VALIDATE_CMD_NO_PARAM2(idx, layer, DM_ERASE_TOGGLE)                                          \
-    DM_VALIDATE_CMD_NO_PARAM2(idx, layer, DM_TEST_RELOAD)
+    DM_VALIDATE_CMD_NO_PARAM2(idx, layer, DM_TEST_RELOAD)                                           \
+    DM_VALIDATE_CMD_NO_PARAM2(idx, layer, DM_TOG)
 
 #define DM_VALIDATE_KEYMAP_LAYER(layer)                                                             \
     COND_CODE_1(DT_NODE_HAS_PROP(layer, bindings),                                                  \
@@ -164,6 +165,8 @@ static const struct behavior_parameter_value_metadata dm_param_feedback_inc[] = 
 static const struct behavior_parameter_value_metadata dm_param_feedback_dec[] = {
     DM_COMMAND_VALUE("Feedback-", DM_FEEDBACK_DEC)};
 #endif
+static const struct behavior_parameter_value_metadata dm_param_toggle[] = {
+    DM_COMMAND_VALUE("Toggle Record", DM_TOG)};
 static const struct behavior_parameter_value_metadata dm_param_unused[] = {
     {.display_name = "Unused", .type = BEHAVIOR_PARAMETER_VALUE_TYPE_NIL}};
 
@@ -211,6 +214,8 @@ static const struct behavior_parameter_metadata_set dm_parameter_metadata_sets[]
     {.param1_values_len = ARRAY_SIZE(dm_param_feedback_dec), .param1_values = dm_param_feedback_dec,
      .param2_values_len = ARRAY_SIZE(dm_param_unused), .param2_values = dm_param_unused},
 #endif
+    {.param1_values_len = ARRAY_SIZE(dm_param_toggle), .param1_values = dm_param_toggle,
+     .param2_values_len = ARRAY_SIZE(dm_param_unused), .param2_values = dm_param_unused},
 };
 
 static const struct behavior_parameter_metadata dm_parameter_metadata = {
@@ -542,6 +547,20 @@ static int on_keymap_binding_pressed(struct zmk_behavior_binding *binding,
         return ZMK_BEHAVIOR_OPAQUE;
     }
 #endif
+
+    /*
+     * DM_TOG: one key for both ends of a recording. Stop while the machine is
+     * recording, record otherwise (at power-on the first press starts it). It
+     * resolves to the explicit keycode BEFORE the switch, so it then runs the
+     * exact same path as DM_REC / DM_STP — pending-mod reset, machine gates,
+     * feedback, events. The one-line state verdict is the only new logic; the
+     * legality matrix and every transition stay the machine's, unchanged.
+     */
+    if (binding->param1 == DM_TOG) {
+        binding->param1 = dm_machine_state(&inst->machine) == DM_STATE_RECORDING
+                              ? DM_STP
+                              : DM_REC;
+    }
 
     switch (binding->param1) {
     case DM_REC:

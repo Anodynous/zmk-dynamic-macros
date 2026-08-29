@@ -175,6 +175,7 @@ See [docs/keycodes.md](docs/keycodes.md) for the full binding reference includin
 | `&dm DM_FEEDBACK_DEC 0` | Decrease feedback verbosity (persisted) |
 | `&dm DM_STYLE_TOGGLE 0` | Toggle FULL / ARROW style (US/UK only, persisted) |
 | `&dm DM_ERASE_TOGGLE 0` | Toggle auto-erase on / off (persisted)     |
+| `&dm DM_TOG 0`        | Toggle recording (start / stop)            |
 
 ## Kconfig Options
 

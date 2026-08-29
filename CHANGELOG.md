@@ -10,6 +10,12 @@ release line it targets, while the **patch** is the module's own.
 
 ### Added
 
+- `DM_TOG` (13) keycode: a single key that toggles recording — it stops the
+  recording while one is in progress and starts one otherwise (the first press
+  after power-on starts recording). The press resolves to the existing
+  `DM_REC` / `DM_STP` command from the current machine state and then runs
+  their exact dispatch, feedback, and event path unchanged, so the state
+  machine itself needed no new transitions.
 - `ZMK_BEHAVIOR_DYNAMIC_MACRO_AUTO_OVERWRITE_RAM` and
   `ZMK_BEHAVIOR_DYNAMIC_MACRO_AUTO_OVERWRITE_NVS` (both default `n`): when
   enabled for a slot class, saving or moving a macro into an occupied slot of

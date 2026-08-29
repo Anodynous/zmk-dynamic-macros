@@ -5,7 +5,7 @@
 #include <dt-bindings/zmk/dynamic_macros.h>
 
 &kscan {
-    rows = <3>;
+    rows = <4>;
     columns = <2>;
     exit-after;
 };
@@ -18,6 +18,7 @@
                 &dm DM_REC 0        &dm DM_STP 0
                 &dm DM_SLOT_RAM 0   &dm DM_SLOT_RAM 1
                 &kp A               &kp B
+                &dm DM_TOG 0        &none
             >;
         };
     };

@@ -1,0 +1,30 @@
+#include "../behavior_keymap.dtsi"
+
+&kscan {
+    events = <
+        /* TOG #1: start recording (triggers feedback typing; hold until it drains) */
+        ZMK_MOCK_PRESS(3,0,10)
+        ZMK_MOCK_RELEASE(3,0,2000)
+        /* A (recorded) */
+        ZMK_MOCK_PRESS(2,0,10)
+        ZMK_MOCK_RELEASE(2,0,10)
+        /* TOG #2: stop (triggers feedback typing) */
+        ZMK_MOCK_PRESS(3,0,10)
+        ZMK_MOCK_RELEASE(3,0,2000)
+        /* TOG #3: start again, discarding the unassigned take */
+        ZMK_MOCK_PRESS(3,0,10)
+        ZMK_MOCK_RELEASE(3,0,2000)
+        /* A (recorded) */
+        ZMK_MOCK_PRESS(2,0,10)
+        ZMK_MOCK_RELEASE(2,0,10)
+        /* TOG #4: stop (triggers feedback typing) */
+        ZMK_MOCK_PRESS(3,0,10)
+        ZMK_MOCK_RELEASE(3,0,2000)
+        /* SLOT_RAM 0 (assign, triggers feedback typing) */
+        ZMK_MOCK_PRESS(1,0,10)
+        ZMK_MOCK_RELEASE(1,0,2000)
+        /* SLOT_RAM 0 (play) */
+        ZMK_MOCK_PRESS(1,0,2000)
+        ZMK_MOCK_RELEASE(1,0,10)
+    >;
+};

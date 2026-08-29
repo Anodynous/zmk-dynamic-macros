@@ -14,6 +14,7 @@ description: |
     5 (DM_SLOT_NVS) - NVS slot (play/assign)
     6 (DM_SLOT_RAM) - RAM slot (play/assign)
     7 (DM_PREVIEW)  - Preview mode
+    13 (DM_TOG)     - Toggle recording (start when idle, stop when recording)
 
 compatible: "zmk,behavior-dynamic-macro"
 

@@ -19,3 +19,4 @@
 #define DM_STYLE_TOGGLE 10
 #define DM_ERASE_TOGGLE 11
 #define DM_TEST_RELOAD  12
+#define DM_TOG      13
