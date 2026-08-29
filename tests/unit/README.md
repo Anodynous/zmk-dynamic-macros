@@ -33,6 +33,11 @@ cl /nologo /W3 /DZTEST_SHIM_HOST /I. /I..\..\include host_runner.c test_*.c /Fe:
 .\dm_unit_host.exe
 ```
 
+The auto-overwrite policy is a compile-time switch, so the Makefile also builds two
+policy rails over the same sources — reproduce them for `cl` by adding
+`/DDM_AUTO_OVERWRITE_RAM=1` (RAM rail) and/or `/DDM_AUTO_OVERWRITE_NVS=1`
+(both rail) to the compile line, with matching `/Fe:` names.
+
 The shim auto-registers tests via `__attribute__((constructor))` on GCC/Clang and via the
 `.CRT$XCU` section on MSVC, so the same test source runs under all three.
 

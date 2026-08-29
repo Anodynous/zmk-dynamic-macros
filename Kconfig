@@ -59,6 +59,32 @@ config ZMK_BEHAVIOR_DYNAMIC_MACRO_RAM_SLOTS
     default 8
     range 0 48
 
+config ZMK_BEHAVIOR_DYNAMIC_MACRO_AUTO_OVERWRITE_RAM
+    bool "Automatically overwrite occupied RAM slots instead of rejecting"
+    default n
+    depends on ZMK_BEHAVIOR_DYNAMIC_MACRO_RAM_SLOTS > 0
+    help
+      Saving (or moving) a macro into an occupied RAM slot silently replaces the
+      stored macro instead of reporting the slot as full. The replacement is
+      feedback-free: only the normal SAVED/MOVED confirmation is emitted. When
+      disabled (default) the slot must be deleted first and an occupied target is
+      rejected with feedback. The occupant is cleared before the commit, so a
+      commit that is refused (shared pool full) leaves the occupant already
+      gone; the draft is kept for retry.
+
+config ZMK_BEHAVIOR_DYNAMIC_MACRO_AUTO_OVERWRITE_NVS
+    bool "Automatically overwrite occupied NVS slots instead of rejecting"
+    default n
+    depends on ZMK_BEHAVIOR_DYNAMIC_MACRO_PERSIST
+    help
+      As AUTO_OVERWRITE_RAM, but for the NVS-persisted slots: saving (or moving)
+      a macro into an occupied NVS slot silently replaces the stored macro
+      (its flash entry is removed and the new macro persisted as usual) instead
+      of reporting the slot as full. Independent of the RAM variant, so the two
+      slot classes can be governed separately. The occupant's flash entry is
+      removed before the replacement is saved, so a save that is refused (pool
+      or storage queue full) leaves the occupant already gone.
+
 comment "Dynamic macro has zero slots; all dynamic macro slot bindings will be unusable"
     depends on ZMK_BEHAVIOR_DYNAMIC_MACRO_RAM_SLOTS = 0
     depends on !ZMK_BEHAVIOR_DYNAMIC_MACRO_PERSIST || ZMK_BEHAVIOR_DYNAMIC_MACRO_NVS_SLOTS = 0

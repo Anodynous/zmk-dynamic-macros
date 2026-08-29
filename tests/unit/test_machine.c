@@ -520,6 +520,12 @@ ZTEST(dm_machine, assign_persist_queue_full_surfaces) {
     zassert_equal(dm_machine_state(&fx.m), DM_STATE_IDLE, NULL);
 }
 
+/* These occupied-reject tests pin the DEFAULT policy (both auto-overwrite
+ * policies off). The overwrite rails recompile this file with
+ * DM_AUTO_OVERWRITE_RAM/_NVS set (Makefile) and run the overwrite tests below
+ * instead — the #if picks each rail's expectations from its compile-time policy.
+ */
+#if !DM_AUTO_OVERWRITE_RAM
 ZTEST(dm_machine, assign_to_occupied_rejects_and_keeps_pending) {
     setup();
     goto_state(DM_STATE_PENDING_ASSIGN);
@@ -528,10 +534,89 @@ ZTEST(dm_machine, assign_to_occupied_rejects_and_keeps_pending) {
     dm_result rc = cmd(DM_CMD_SLOT, RAM0);
     zassert_equal(rc, DM_REJECTED_OCCUPIED, NULL);
     zassert_true(log_has("slot_full"), NULL);
+    /* the rejection is the whole story: no silent pre-delete of the occupant */
+    zassert_false(log_has("delete"), NULL);
     /* preserved pending state, not dropped to idle */
     zassert_equal(dm_machine_state(&fx.m), DM_STATE_PENDING_ASSIGN, NULL);
     zassert_false(log_has("commit"), NULL);
 }
+#endif /* !DM_AUTO_OVERWRITE_RAM */
+
+/* ---- guards: assign (auto-overwrite rails) -------------------------------- */
+
+#if DM_AUTO_OVERWRITE_RAM
+/* An occupied RAM slot is cleared silently (the manual delete-then-save in one
+ * press) and the draft commits in its place. The ORDER is the invariant — delete
+ * before commit — and the occupied feedback must stay absent: the overwrite is
+ * feedback-free beyond the normal SAVED confirmation. */
+ZTEST(dm_machine, assign_to_occupied_ram_overwrites_silently) {
+    setup();
+    goto_state(DM_STATE_PENDING_ASSIGN);
+    occupy(RAM0);
+    fx.log_n = 0;
+    dm_result rc = cmd(DM_CMD_SLOT, RAM0);
+    zassert_equal(rc, DM_OK, NULL);
+    zassert_true(log_has("delete"), NULL);
+    zassert_true(log_has("commit"), NULL);
+    zassert_true(log_index("delete") < log_index("commit"), NULL);
+    zassert_false(log_has("slot_full"), NULL);
+    zassert_true(log_has("saved"), NULL);
+    zassert_equal(fx.last_saved_slot, RAM0, NULL);
+    zassert_equal(dm_machine_state(&fx.m), DM_STATE_IDLE, NULL);
+}
+
+/* The pre-delete's enqueue refusal is a real storage error, not an occupancy
+ * message: it surfaces as DELETE QUEUE FULL, names the slot, and the assign is
+ * left pending for retry — no commit. */
+ZTEST(dm_machine, assign_overwrite_delete_queue_full_surfaces) {
+    setup();
+    goto_state(DM_STATE_PENDING_ASSIGN);
+    occupy(RAM0);
+    fx.log_n = 0;
+    fx.delete_rc = DM_DELETE_QUEUE_FULL;
+    dm_result rc = cmd(DM_CMD_SLOT, RAM0);
+    zassert_equal(rc, DM_DELETE_QUEUE_FULL, NULL);
+    zassert_true(log_has("delete_qfull"), NULL);
+    zassert_false(log_has("slot_full"), NULL);
+    zassert_false(log_has("commit"), NULL);
+    zassert_equal(dm_machine_state(&fx.m), DM_STATE_PENDING_ASSIGN, NULL);
+}
+
+#if !DM_AUTO_OVERWRITE_NVS
+/* The per-class split: with only the RAM policy on, an occupied NVS slot (idx
+ * < NVS_SLOTS) is still rejected — the NVS policy is independent. */
+ZTEST(dm_machine, assign_to_occupied_nvs_still_rejected_when_only_ram_overwrite) {
+    setup();
+    goto_state(DM_STATE_PENDING_ASSIGN);
+    occupy(0); /* an NVS slot */
+    fx.log_n = 0;
+    dm_result rc = cmd(DM_CMD_SLOT, 0);
+    zassert_equal(rc, DM_REJECTED_OCCUPIED, NULL);
+    zassert_true(log_has("slot_full"), NULL);
+    zassert_false(log_has("delete"), NULL);
+    zassert_false(log_has("commit"), NULL);
+    zassert_equal(dm_machine_state(&fx.m), DM_STATE_PENDING_ASSIGN, NULL);
+}
+#endif /* !DM_AUTO_OVERWRITE_NVS */
+#endif /* DM_AUTO_OVERWRITE_RAM */
+
+#if DM_AUTO_OVERWRITE_NVS
+/* NVS-class overwrite: same contract as the RAM rail, on an NVS slot. */
+ZTEST(dm_machine, assign_to_occupied_nvs_overwrites_silently) {
+    setup();
+    goto_state(DM_STATE_PENDING_ASSIGN);
+    occupy(0);
+    fx.log_n = 0;
+    dm_result rc = cmd(DM_CMD_SLOT, 0);
+    zassert_equal(rc, DM_OK, NULL);
+    zassert_true(log_has("delete"), NULL);
+    zassert_true(log_has("commit"), NULL);
+    zassert_true(log_index("delete") < log_index("commit"), NULL);
+    zassert_false(log_has("slot_full"), NULL);
+    zassert_true(log_has("saved"), NULL);
+    zassert_equal(dm_machine_state(&fx.m), DM_STATE_IDLE, NULL);
+}
+#endif /* DM_AUTO_OVERWRITE_NVS */
 
 /* ---- guards: move --------------------------------------------------------- */
 
@@ -603,6 +688,69 @@ ZTEST(dm_machine, move_src_delete_queue_full_surfaces) {
     zassert_true(log_has("delete_qfull"), NULL);
     zassert_false(log_has("moved"), NULL);
 }
+
+/* ---- guards: move (auto-overwrite rails) ---------------------------------- */
+
+#if DM_AUTO_OVERWRITE_RAM
+/* An occupied RAM destination is cleared silently before the move; the order is
+ * delete (of the destination) before move, and no occupied feedback is typed. */
+ZTEST(dm_machine, move_to_occupied_ram_overwrites_silently) {
+    setup();
+    goto_state(DM_STATE_MOVE_PENDING);
+    occupy(RAM0);
+    cmd(DM_CMD_SLOT, RAM0); /* select source */
+    fx.log_n = 0;
+    occupy(RAM0 + 1); /* occupied destination */
+    fx.move_rc = DM_OK;
+    dm_result rc = cmd(DM_CMD_SLOT, RAM0 + 1);
+    zassert_equal(rc, DM_OK, NULL);
+    zassert_true(log_has("delete"), NULL);
+    zassert_true(log_has("move"), NULL);
+    zassert_true(log_index("delete") < log_index("move"), NULL);
+    zassert_false(log_has("slot_full"), NULL);
+    zassert_true(log_has("moved"), NULL);
+    zassert_equal(fx.last_moved_src, RAM0, NULL);
+    zassert_equal(fx.last_moved_dst, RAM0 + 1, NULL);
+    zassert_equal(dm_machine_state(&fx.m), DM_STATE_IDLE, NULL);
+}
+
+#if !DM_AUTO_OVERWRITE_NVS
+ZTEST(dm_machine, move_to_occupied_nvs_still_rejected_when_only_ram_overwrite) {
+    setup();
+    goto_state(DM_STATE_MOVE_PENDING);
+    occupy(RAM0);
+    cmd(DM_CMD_SLOT, RAM0); /* source */
+    fx.log_n = 0;
+    occupy(1); /* occupied NVS destination */
+    dm_result rc = cmd(DM_CMD_SLOT, 1);
+    zassert_equal(rc, DM_REJECTED_OCCUPIED, NULL);
+    zassert_true(log_has("slot_full"), NULL);
+    zassert_false(log_has("delete"), NULL);
+    zassert_false(log_has("move"), NULL);
+    zassert_equal(dm_machine_state(&fx.m), DM_STATE_MOVE_PENDING, NULL);
+}
+#endif /* !DM_AUTO_OVERWRITE_NVS */
+#endif /* DM_AUTO_OVERWRITE_RAM */
+
+#if DM_AUTO_OVERWRITE_NVS
+ZTEST(dm_machine, move_to_occupied_nvs_overwrites_silently) {
+    setup();
+    goto_state(DM_STATE_MOVE_PENDING);
+    occupy(RAM0);
+    cmd(DM_CMD_SLOT, RAM0); /* source */
+    fx.log_n = 0;
+    occupy(1); /* occupied NVS destination */
+    fx.move_rc = DM_OK;
+    dm_result rc = cmd(DM_CMD_SLOT, 1);
+    zassert_equal(rc, DM_OK, NULL);
+    zassert_true(log_has("delete"), NULL);
+    zassert_true(log_has("move"), NULL);
+    zassert_true(log_index("delete") < log_index("move"), NULL);
+    zassert_false(log_has("slot_full"), NULL);
+    zassert_true(log_has("moved"), NULL);
+    zassert_equal(dm_machine_state(&fx.m), DM_STATE_IDLE, NULL);
+}
+#endif /* DM_AUTO_OVERWRITE_NVS */
 
 /* ---- guards: delete ------------------------------------------------------- */
 
@@ -1057,6 +1205,9 @@ ZTEST(dm_machine, move_cancel_notifies_cancelled) {
     zassert_equal(fx.last_notify_event, DM_EVT_MOVE_CANCELLED, NULL);
 }
 
+/* Default-policy rails only (both auto-overwrite policies off): with the RAM
+ * policy on these presses overwrite instead of rejecting. */
+#if !DM_AUTO_OVERWRITE_RAM
 ZTEST(dm_machine, move_dst_occupied_notifies_occupied_stays_pending) {
     setup();
     goto_state(DM_STATE_MOVE_PENDING);
@@ -1085,6 +1236,7 @@ ZTEST(dm_machine, assign_occupied_notifies_occupied) {
     zassert_equal(dm_machine_effective_state(&fx.m), DM_STATE_PENDING_ASSIGN, NULL);
     fx.suppress_auto_finish = false;
 }
+#endif /* !DM_AUTO_OVERWRITE_RAM */
 
 ZTEST(dm_machine, chain_ok_notifies_chain_inserted) {
     setup();

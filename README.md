@@ -105,7 +105,10 @@ Or scatter them across layers as needed.
 3. Press **STOP** to finish
 4. Press a **slot key** to save
 
-Slots must be empty. Delete first to overwrite.
+Slots must be empty. Delete first to overwrite — unless you enable
+`CONFIG_ZMK_BEHAVIOR_DYNAMIC_MACRO_AUTO_OVERWRITE_RAM` / `..._NVS`
+(default `n`), in which case saving to an occupied slot silently replaces the
+stored macro (no error feedback, only the normal saved confirmation).
 
 ### Playback
 
@@ -131,7 +134,8 @@ playback still does nothing, as before; only typed keys are buffered.)
 
 1. Press **MOV**
 2. Press **source slot**
-3. Press **destination slot** (must be empty)
+3. Press **destination slot** (must be empty, unless auto-overwrite is enabled for
+   its slot class — see [Recording](#recording))
 
 ### Chaining
 
@@ -186,6 +190,8 @@ See [docs/keycodes.md](docs/keycodes.md) for the full binding reference includin
 | `PERSIST`             | y       | Enable NVS persistence               |
 | `NVS_SLOTS`           | 8       | Persistent slots (0-16)              |
 | `RAM_SLOTS`           | 8       | Temporary slots (0-48)               |
+| `AUTO_OVERWRITE_RAM`  | n       | Allow overwriting of occupied RAM slots |
+| `AUTO_OVERWRITE_NVS`  | n       | Allow overwriting of occupied NVS slots |
 
 All options prefixed with `CONFIG_ZMK_BEHAVIOR_DYNAMIC_MACRO_`.
 

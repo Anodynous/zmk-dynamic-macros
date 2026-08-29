@@ -3,6 +3,10 @@
 # lands here.
 dm_unit_host
 dm_unit_host.exe
+dm_unit_host_ow_ram
+dm_unit_host_ow_ram.exe
+dm_unit_host_ow_both
+dm_unit_host_ow_both.exe
 *.obj
 *.o
 *.pdb

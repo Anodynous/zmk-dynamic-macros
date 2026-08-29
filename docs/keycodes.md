@@ -70,7 +70,11 @@ Slot commands are context-sensitive: their effect depends on the current mode.
 | PREVIEW_PENDING (after PREVIEW) | Raise `PREVIEW_READY` event for this slot |
 
 Pressing a slot key while the slot is full during ASSIGN/MOVE destination will
-produce a "slot full" message and leave the pending mode active.
+produce a "slot full" message and leave the pending mode active — unless
+`CONFIG_ZMK_BEHAVIOR_DYNAMIC_MACRO_AUTO_OVERWRITE_RAM` /
+`CONFIG_ZMK_BEHAVIOR_DYNAMIC_MACRO_AUTO_OVERWRITE_NVS` (default `n`) is enabled
+for that slot's class, in which case the occupied slot is overwritten silently
+(the existing macro is deleted and replaced without an error message).
 
 ### `DM_SLOT_NVS` — NVS (persistent) slot
 
@@ -127,8 +131,9 @@ Pressing `DM_DEL` while not idle is a no-op.
 ```
 
 Transitions to MOVE_PENDING. Requires two slot presses: first selects the
-source (must be non-empty), second selects the destination (must be empty).
-Auto-cancels after `ASSIGN_TIMEOUT` ms.
+source (must be non-empty), second selects the destination (must be empty,
+unless auto-overwrite is enabled for its slot class). Auto-cancels after
+`ASSIGN_TIMEOUT` ms.
 
 **Feedback:** `[DM MOV]` → `[DM MOV SRC N0]` → `[DM MOV N0->N1]` / `<>` → `<>N0` → `>N0>>N1`
 

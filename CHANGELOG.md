@@ -10,6 +10,17 @@ release line it targets, while the **patch** is the module's own.
 
 ### Added
 
+- `ZMK_BEHAVIOR_DYNAMIC_MACRO_AUTO_OVERWRITE_RAM` and
+  `ZMK_BEHAVIOR_DYNAMIC_MACRO_AUTO_OVERWRITE_NVS` (both default `n`): when
+  enabled for a slot class, saving or moving a macro into an occupied slot of
+  that class silently replaces the stored macro instead of rejecting with a
+  "slot full" message. The two settings are independent, so RAM and NVS slots
+  can be governed separately. The overwrite reuses the existing delete path
+  (the manual delete-then-save, compressed into one press); a storage
+  queue-full refusal during the overwrite still surfaces its error feedback.
+  The occupant is deleted before the replacement is committed, so if that
+  commit/save is refused (storage saturated) the occupant is already gone and
+  the slot is left empty for retry.
 - Finnish keyboard locale (`ZMK_BEHAVIOR_DYNAMIC_MACRO_LOCALE_FI`), a
   full-punctuation locale like US/UK: the preview renderer inverts every
   shift-level Finnish key — the ISO punctuation positions (`'` at 0x32,

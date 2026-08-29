@@ -48,6 +48,25 @@
 #ifndef RAM_SLOTS
 #define RAM_SLOTS CONFIG_ZMK_BEHAVIOR_DYNAMIC_MACRO_RAM_SLOTS
 #endif
+/* Auto-overwrite of occupied slots (0/1, per slot class): an assign/move into an
+ * occupied slot silently replaces the stored macro instead of being rejected.
+ * Both default 0 (reject). Each symbol is ABSENT (not 0) when its depends-on is
+ * off (RAM_SLOTS = 0 / PERSIST off) or in the host build, hence the inner
+ * #ifdef. Host tests flip them via -D to pin the enabled rail. */
+#ifndef DM_AUTO_OVERWRITE_NVS
+#ifdef CONFIG_ZMK_BEHAVIOR_DYNAMIC_MACRO_AUTO_OVERWRITE_NVS
+#define DM_AUTO_OVERWRITE_NVS CONFIG_ZMK_BEHAVIOR_DYNAMIC_MACRO_AUTO_OVERWRITE_NVS
+#else
+#define DM_AUTO_OVERWRITE_NVS 0
+#endif
+#endif
+#ifndef DM_AUTO_OVERWRITE_RAM
+#ifdef CONFIG_ZMK_BEHAVIOR_DYNAMIC_MACRO_AUTO_OVERWRITE_RAM
+#define DM_AUTO_OVERWRITE_RAM CONFIG_ZMK_BEHAVIOR_DYNAMIC_MACRO_AUTO_OVERWRITE_RAM
+#else
+#define DM_AUTO_OVERWRITE_RAM 0
+#endif
+#endif
 
 #else /* host unit build: no Kconfig — test-representative defaults */
 
@@ -64,6 +83,14 @@
 #endif
 #ifndef RAM_SLOTS
 #define RAM_SLOTS 8
+#endif
+/* Off by default in the host build; the overwrite rail (Makefile) flips both to
+ * 1 via -D to exercise the enabled policy. */
+#ifndef DM_AUTO_OVERWRITE_NVS
+#define DM_AUTO_OVERWRITE_NVS 0
+#endif
+#ifndef DM_AUTO_OVERWRITE_RAM
+#define DM_AUTO_OVERWRITE_RAM 0
 #endif
 
 #endif /* __ZEPHYR__ */

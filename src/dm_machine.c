@@ -119,11 +119,46 @@ static bool slot_empty(dm_machine *m, int idx) {
     return m->cb->store_is_empty(m->cb->ctx, idx);
 }
 
+/*
+ * Auto-overwrite policy (compile-time, per destination slot class): when set for
+ * the class, an assign/move into an occupied slot silently replaces the stored
+ * macro instead of being rejected (DM_AUTO_OVERWRITE_NVS/_RAM; both default off).
+ * The class split mirrors slot_store's own: NVS slots occupy [0, NVS_SLOTS).
+ */
+static bool auto_overwrite(int idx) {
+    if (idx < 0 || idx >= MAX_SLOTS) {
+        return false;
+    }
+    return (idx < NVS_SLOTS) ? (DM_AUTO_OVERWRITE_NVS != 0) : (DM_AUTO_OVERWRITE_RAM != 0);
+}
+
 /* Park the return-state the machine restores at typing_finished, and enter a
  * typing state so a subsequent command sees the machine as busy. */
 static void enter_typing(dm_machine *m, dm_state return_to) {
     m->return_state = return_to;
     m->state = DM_STATE_TYPING_FEEDBACK;
+}
+
+/*
+ * Silently clear an occupied slot before overwriting it: the manual
+ * delete-then-save sequence, compressed into one press with no delete feedback.
+ * DM_OK (RAM) frees the slot immediately; DM_DELETE_DEFERRED (NVS) sets the
+ * pending bit, which makes the slot read as EMPTY for the commit/move that
+ * follows — and that op's generation bump is what makes the deferred delete
+ * completion STALE (dropped silently by deliver_async), so it can never zero
+ * the freshly stored macro. Only an enqueue refusal (queue full) is a real
+ * storage error: it is surfaced, with the pending bit rolled back by the store.
+ * Returns DM_OK to proceed, or the failure to surface from the caller's state.
+ */
+static dm_result overwrite_pre_delete(dm_machine *m, int idx, dm_state stay) {
+    dm_result rc = m->cb->store_delete(m->cb->ctx, idx);
+    if (rc == DM_OK || rc == DM_DELETE_DEFERRED) {
+        return DM_OK;
+    }
+    enter_typing(m, stay);
+    notify(m, DM_EVT_ERROR_DELETE_QUEUE_FULL, idx, -1);
+    speak(m, DM_FB_DELETE_QFULL, idx, -1, false);
+    return rc;
 }
 
 /* ---- per-state transition logic ------------------------------------------- */
@@ -252,14 +287,22 @@ static dm_result slot_recording(dm_machine *m, int idx) {
 static dm_result slot_assign(dm_machine *m, int idx) {
     cancel_timeout(m);
     if (!slot_empty(m, idx)) {
-        /* preserved pending state: press another slot, or let the timeout fire.
-         * typing_finished restores PENDING_ASSIGN and re-arms its timeout. The
-         * display disambiguates ERROR_SLOT_OCCUPIED while .state == ASSIGN_PENDING
-         * as a rejected assign target. */
-        enter_typing(m, DM_STATE_PENDING_ASSIGN);
-        notify(m, DM_EVT_ERROR_SLOT_OCCUPIED, idx, -1);
-        speak(m, DM_FB_SLOT_FULL, idx, -1, false);
-        return DM_REJECTED_OCCUPIED;
+        if (!auto_overwrite(idx)) {
+            /* preserved pending state: press another slot, or let the timeout fire.
+             * typing_finished restores PENDING_ASSIGN and re-arms its timeout. The
+             * display disambiguates ERROR_SLOT_OCCUPIED while .state == ASSIGN_PENDING
+             * as a rejected assign target. */
+            enter_typing(m, DM_STATE_PENDING_ASSIGN);
+            notify(m, DM_EVT_ERROR_SLOT_OCCUPIED, idx, -1);
+            speak(m, DM_FB_SLOT_FULL, idx, -1, false);
+            return DM_REJECTED_OCCUPIED;
+        }
+        /* auto-overwrite: clear the occupant silently, then fall through and
+         * commit as if the slot were empty. */
+        dm_result drc = overwrite_pre_delete(m, idx, DM_STATE_PENDING_ASSIGN);
+        if (drc != DM_OK) {
+            return drc;
+        }
     }
     dm_result rc = m->cb->store_draft_commit(m->cb->ctx, idx);
     if (rc != DM_OK) {
@@ -349,10 +392,18 @@ static dm_result slot_move(dm_machine *m, int idx) {
     }
 
     if (!slot_empty(m, dst)) {
-        enter_typing(m, DM_STATE_MOVE_PENDING); /* returns to MOVE_PENDING */
-        notify(m, DM_EVT_ERROR_SLOT_OCCUPIED, dst, -1);
-        speak(m, DM_FB_SLOT_FULL, dst, -1, false);
-        return DM_REJECTED_OCCUPIED;
+        if (!auto_overwrite(dst)) {
+            enter_typing(m, DM_STATE_MOVE_PENDING); /* returns to MOVE_PENDING */
+            notify(m, DM_EVT_ERROR_SLOT_OCCUPIED, dst, -1);
+            speak(m, DM_FB_SLOT_FULL, dst, -1, false);
+            return DM_REJECTED_OCCUPIED;
+        }
+        /* auto-overwrite: clear the destination silently, then fall through and
+         * move as if it were empty. */
+        dm_result drc = overwrite_pre_delete(m, dst, DM_STATE_MOVE_PENDING);
+        if (drc != DM_OK) {
+            return drc;
+        }
     }
 
     /* park the IDLE return-state before the effect (transaction rule): the

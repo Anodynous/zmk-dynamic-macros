@@ -5,8 +5,15 @@
 # local loop. It doubles as a decoupling proof: if a pure module stops compiling
 # without Zephyr, `make` breaks here. (run-host.ps1 is the equivalent MSVC loop.)
 #
+# The auto-overwrite policy (dm_config.h: DM_AUTO_OVERWRITE_RAM/_NVS) is a
+# compile-time switch, so the rails recompile the SAME sources with it flipped:
+#   dm_unit_host          both policies off (the default Kconfig behavior)
+#   dm_unit_host_ow_ram   RAM overwrite on, NVS off (pins the per-class split)
+#   dm_unit_host_ow_both  both on (pins the NVS-class path)
+# test_machine.c #if's select each rail's expectations from its policy.
+#
 # Usage (from tests/unit/):
-#   make          # build + run
+#   make          # build + run all rails
 #   make run      # alias
 #   make clean
 
@@ -27,7 +34,13 @@ MODULE_SRCS := $(REPO)/src/dm_render.c $(REPO)/src/slot_store.c $(REPO)/src/dm_m
 
 SRCS      := host_runner.c $(TEST_SRCS) $(MODULE_SRCS)
 
-BIN := dm_unit_host
+BIN        := dm_unit_host
+BIN_OW_RAM := dm_unit_host_ow_ram
+BIN_OW_BOTH:= dm_unit_host_ow_both
+BINS       := $(BIN) $(BIN_OW_RAM) $(BIN_OW_BOTH)
+
+CFLAGS_OW_RAM  := $(CFLAGS) -DDM_AUTO_OVERWRITE_RAM=1
+CFLAGS_OW_BOTH := $(CFLAGS) -DDM_AUTO_OVERWRITE_RAM=1 -DDM_AUTO_OVERWRITE_NVS=1
 
 .PHONY: all run clean
 all: run
@@ -35,8 +48,16 @@ all: run
 $(BIN): $(SRCS) ztest_shim.h
 	$(CC) $(CFLAGS) -o $(BIN) $(SRCS)
 
-run: $(BIN)
+$(BIN_OW_RAM): $(SRCS) ztest_shim.h
+	$(CC) $(CFLAGS_OW_RAM) -o $(BIN_OW_RAM) $(SRCS)
+
+$(BIN_OW_BOTH): $(SRCS) ztest_shim.h
+	$(CC) $(CFLAGS_OW_BOTH) -o $(BIN_OW_BOTH) $(SRCS)
+
+run: $(BINS)
 	./$(BIN)
+	./$(BIN_OW_RAM)
+	./$(BIN_OW_BOTH)
 
 clean:
-	rm -f $(BIN)
+	rm -f $(BINS)
