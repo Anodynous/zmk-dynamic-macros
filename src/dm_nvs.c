@@ -73,7 +73,7 @@ struct dm_storage_op {
 #endif
 };
 
-#define DM_STORAGE_STACK_SIZE 1024
+#define DM_STORAGE_STACK_SIZE 4096
 #define DM_STORAGE_QUEUE_LEN  4
 #define DM_STORAGE_PRIORITY   10
 
