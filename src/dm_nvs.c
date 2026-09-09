@@ -116,6 +116,8 @@ static void dm_completion_handler(struct k_work *work) {
         return;
     }
 
+    LOG_INF("Completion: kind=%d slot %d gen=%u ok=%d", (int)c.kind, c.slot_idx,
+            (unsigned int)c.generation, (int)c.ok);
     if (c.kind == DM_COMPLETE_DELETE) {
         dm_result outcome = slot_store_complete_delete(dm_store, c.slot_idx, c.generation, c.ok);
         dm_machine_deliver_async(dm_machine_ref, outcome, c.slot_idx);
@@ -148,11 +150,41 @@ static void knob_key(const char *leaf, char *key, size_t key_len) {
 }
 #endif
 
+/* Report the calling thread's remaining stack headroom at each save/delete
+ * stage. With CONFIG_LOG_MODE_IMMEDIATE the last line printed before a crash
+ * names the stage that died; a near-zero (or negative) free-bytes value there
+ * indicates stack exhaustion. The delta between the sink_* and enqueue lines
+ * is enqueue's full-size op struct landing on the caller's stack.
+ *
+ * Excluded at compile time when CONFIG_LOG is off — no overhead in normal
+ * operation.
+ */
+#if IS_ENABLED(CONFIG_LOG)
+static void log_stack_headroom(const char *tag) {
+    struct k_thread *t = k_current_get();
+    if (t == NULL) {
+        LOG_INF("%s: running in ISR context", tag);
+        return;
+    }
+    struct k_thread_stack_info info = {0};
+    if (k_thread_stack_info_get(t, &info) != 0) {
+        return;
+    }
+    LOG_INF("%s: thread '%s' stack %zu bytes total, %ld bytes free", tag,
+            k_thread_name_get(t), info.size, (long)(info.current - info.start));
+}
+#define DM_LOG_STACK_HEADROOM(tag) log_stack_headroom(tag)
+#else
+#define DM_LOG_STACK_HEADROOM(tag)
+#endif
+
 /* ---- the storage work handler (runs on dm_storage_work_q) ------------------- */
 
 static void dm_storage_work_handler(struct k_work *work) {
     static struct dm_storage_op op;
     static uint8_t save_buf[sizeof(struct dm_slot_header) + MAX_EVENTS * sizeof(struct dm_event)];
+
+    DM_LOG_STACK_HEADROOM("Storage worker start");
 
     while (k_msgq_get(&dm_storage_msgq, &op, K_NO_WAIT) == 0) {
 #if DM_TYPING_ENABLED
@@ -193,7 +225,10 @@ static void dm_storage_work_handler(struct k_work *work) {
             memcpy(save_buf + sizeof(struct dm_slot_header), op.slot.events, events_size);
 
             size_t data_size = sizeof(struct dm_slot_header) + events_size;
+            LOG_INF("Save slot %d: settings_save_one(\"%s\", %zu bytes)", op.slot_idx, key,
+                    data_size);
             int rc = settings_save_one(key, save_buf, data_size);
+            LOG_INF("Save slot %d: settings_save_one rc=%d", op.slot_idx, rc);
             if (rc) {
                 LOG_ERR("Failed to save dynamic macro slot %d: %d", op.slot_idx, rc);
                 submit_completion(&(struct dm_completion){
@@ -206,7 +241,9 @@ static void dm_storage_work_handler(struct k_work *work) {
         }
 
         /* DM_STORAGE_OP_DELETE */
+        LOG_INF("Delete slot %d: settings_delete(\"%s\")", op.slot_idx, key);
         int rc = settings_delete(key);
+        LOG_INF("Delete slot %d: settings_delete rc=%d", op.slot_idx, rc);
         submit_completion(&(struct dm_completion){
             .kind = DM_COMPLETE_DELETE,
             .slot_idx = op.slot_idx,
@@ -226,6 +263,12 @@ static void dm_storage_work_handler(struct k_work *work) {
 
 static dm_result enqueue(enum dm_storage_op_type type, int slot_idx,
                          const struct dm_event *events, uint32_t count, uint32_t generation) {
+    LOG_INF("Storage %s: slot %d, events=%u, gen=%u (op struct %u bytes)",
+            (type == DM_STORAGE_OP_SAVE) ? "SAVE" : "DELETE", slot_idx, (unsigned int)count,
+            (unsigned int)generation, (unsigned int)sizeof(struct dm_storage_op));
+    /* Frame is already reserved here: the free-bytes delta vs the sink_* line
+     * above is this op struct + this function's cost on the CALLER's stack. */
+    DM_LOG_STACK_HEADROOM("Storage enqueue");
     struct dm_storage_op op = {0};
     op.type = type;
     op.slot_idx = slot_idx;
@@ -249,11 +292,13 @@ static dm_result enqueue(enum dm_storage_op_type type, int slot_idx,
 static dm_result sink_save(void *ctx, int slot, const struct dm_event *events, uint32_t count,
                            uint32_t generation) {
     (void)ctx;
+    DM_LOG_STACK_HEADROOM("Sink SAVE");
     return enqueue(DM_STORAGE_OP_SAVE, slot, events, count, generation);
 }
 
 static dm_result sink_del(void *ctx, int slot, uint32_t generation) {
     (void)ctx;
+    DM_LOG_STACK_HEADROOM("Sink DELETE");
     return enqueue(DM_STORAGE_OP_DELETE, slot, NULL, 0, generation);
 }
 
@@ -503,6 +548,13 @@ void dm_nvs_init(slot_store *store, struct dm_machine *machine, struct dm_feedba
     k_work_queue_start(&dm_storage_work_q, dm_storage_work_q_stack,
                        K_KERNEL_STACK_SIZEOF(dm_storage_work_q_stack), DM_STORAGE_PRIORITY, NULL);
     dm_storage_started = true;
+    LOG_INF("Storage ready: worker stack %d bytes, op struct %u bytes (x %u queued), "
+            "max slot payload %zu bytes (header %zu + %u events x %u bytes)",
+            (int)K_KERNEL_STACK_SIZEOF(dm_storage_work_q_stack),
+            (unsigned int)sizeof(struct dm_storage_op), DM_STORAGE_QUEUE_LEN,
+            sizeof(struct dm_slot_header) + (size_t)MAX_EVENTS * sizeof(struct dm_event),
+            sizeof(struct dm_slot_header), (unsigned int)MAX_EVENTS,
+            (unsigned int)sizeof(struct dm_event));
 }
 
 #if IS_ENABLED(CONFIG_ZMK_BEHAVIOR_DYNAMIC_MACRO_TEST_RELOAD)
