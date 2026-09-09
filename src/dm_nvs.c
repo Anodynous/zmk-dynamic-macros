@@ -270,10 +270,16 @@ static dm_result enqueue(enum dm_storage_op_type type, int slot_idx,
     LOG_INF("Storage %s: slot %d, events=%u, gen=%u (op struct %u bytes)",
             (type == DM_STORAGE_OP_SAVE) ? "SAVE" : "DELETE", slot_idx, (unsigned int)count,
             (unsigned int)generation, (unsigned int)sizeof(struct dm_storage_op));
-    /* Frame is already reserved here: the free-bytes delta vs the sink_* line
-     * above is this op struct + this function's cost on the CALLER's stack. */
     DM_LOG_STACK_HEADROOM("Storage enqueue");
-    struct dm_storage_op op = {0};
+    /* Static, not a local: at MAX_EVENTS=304 this struct is ~2.4 KB while the
+     * callers run on ZMK's 2 KiB main thread stack, where a local copy
+     * overflows the stack and corrupts neighbouring memory (the write itself
+     * succeeds, then the board hangs once the corrupted memory is touched).
+     * enqueue is only ever called from the single behavior-handling thread and
+     * k_msgq_put copies the op out synchronously, so one shared instance is
+     * safe. */
+    static struct dm_storage_op op;
+    memset(&op, 0, sizeof(op));
     op.type = type;
     op.slot_idx = slot_idx;
     op.generation = generation;
@@ -318,12 +324,14 @@ const dm_nvs_sink *dm_nvs_sink_get(void) {
 
 #if DM_TYPING_ENABLED
 void dm_nvs_save_knobs(uint8_t level, uint8_t style, bool erase) {
-    struct dm_storage_op op = {
-        .type = DM_STORAGE_OP_SAVE_KNOBS,
-        .level = level,
-        .style = style,
-        .erase = (uint8_t)erase,
-    };
+    /* Static for the same reason as in enqueue(): this struct embeds
+     * events[MAX_EVENTS] and must not be a local on the 2 KiB main stack. */
+    static struct dm_storage_op op;
+    memset(&op, 0, sizeof(op));
+    op.type = DM_STORAGE_OP_SAVE_KNOBS;
+    op.level = level;
+    op.style = style;
+    op.erase = (uint8_t)erase;
     if (k_msgq_put(&dm_storage_msgq, &op, K_NO_WAIT) != 0) {
         LOG_ERR("Storage queue full, knob save dropped");
         return;
