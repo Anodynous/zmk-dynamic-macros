@@ -32,6 +32,7 @@ typedef enum {
     DM_REJECTED_OCCUPIED, /* target slot not empty */
     DM_REJECTED_EMPTY,    /* source/target slot empty */
     DM_REJECTED_FULL,     /* recording draft / chain would overflow MAX_EVENTS */
+    DM_REJECTED_TOO_LARGE, /* draft/move exceeds the target slot class's event cap */
 } dm_result;
 
 /*

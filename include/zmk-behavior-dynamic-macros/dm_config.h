@@ -35,6 +35,16 @@
 #ifndef MAX_EVENTS
 #define MAX_EVENTS CONFIG_ZMK_BEHAVIOR_DYNAMIC_MACRO_MAX_EVENTS
 #endif
+/* Per-class NVS cap (defaults to MAX_EVENTS; absent when PERSIST is off, or in
+ * a build that predates the split). An NVS slot can never hold more than this
+ * — one saved value must fit a single NVS flash sector. */
+#ifndef MAX_EVENTS_NVS
+#ifdef CONFIG_ZMK_BEHAVIOR_DYNAMIC_MACRO_MAX_EVENTS_NVS
+#define MAX_EVENTS_NVS CONFIG_ZMK_BEHAVIOR_DYNAMIC_MACRO_MAX_EVENTS_NVS
+#else
+#define MAX_EVENTS_NVS MAX_EVENTS
+#endif
+#endif
 #ifndef AVG_EVENTS
 #define AVG_EVENTS CONFIG_ZMK_BEHAVIOR_DYNAMIC_MACRO_AVG_EVENTS_PER_SLOT
 #endif
@@ -72,6 +82,12 @@
 
 #ifndef MAX_EVENTS
 #define MAX_EVENTS 64
+#endif
+/* Mirrors the firmware fallback: the cap defaults to MAX_EVENTS. The per-class
+ * cap rail (Makefile: dm_unit_host_nvs_cap) lowers it via -D to exercise the
+ * NVS-slot rejection paths. */
+#ifndef MAX_EVENTS_NVS
+#define MAX_EVENTS_NVS MAX_EVENTS
 #endif
 /* Host build keeps the pool small enough that a unit test can fill it:
  * ARENA_EVENTS = 16 * 16 = 256. */

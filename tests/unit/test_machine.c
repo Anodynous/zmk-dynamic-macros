@@ -152,6 +152,7 @@ static const char *kind_tag(const dm_feedback_spec *s, bool async) {
     case DM_FB_KNOB:         return "knob";
     case DM_FB_STATUS_HEADER:return "status";
     case DM_FB_STATUS_SLOT:  return "status_slot";
+    case DM_FB_TOO_LARGE:    return "too_large";
     default:                 return "?";
     }
 }
@@ -1310,4 +1311,37 @@ ZTEST(dm_machine, delete_queue_full_notifies_delete_queue_full) {
     cmd(DM_CMD_SLOT, RAM0);
     zassert_equal(fx.last_notify_event, DM_EVT_ERROR_DELETE_QUEUE_FULL, NULL);
     zassert_equal(fx.last_notify_slot, RAM0, NULL);
+}
+
+/* ---- guards: per-class NVS cap (assign/move rejections) --------------------*/
+
+ZTEST(dm_machine, assign_too_large_nvs_keeps_draft_pending) {
+    setup();
+    goto_state(DM_STATE_PENDING_ASSIGN);
+    fx.log_n = 0;
+    fx.commit_rc = DM_REJECTED_TOO_LARGE;
+
+    dm_result rc = cmd(DM_CMD_SLOT, 0); /* slot 0 = NVS */
+    zassert_equal(rc, DM_REJECTED_TOO_LARGE, "the class-cap rejection propagates");
+    zassert_equal(dm_machine_state(&fx.m), DM_STATE_PENDING_ASSIGN,
+                  "the take is kept for a RAM target");
+    zassert_true(log_has("too_large"), "the dedicated message speaks");
+    zassert_equal(fx.last_notify_event, DM_EVT_ERROR_TOO_LARGE, "the widget event fires");
+    zassert_equal(fx.last_notify_slot, 0, NULL);
+}
+
+ZTEST(dm_machine, move_too_large_nvs_refused_src_intact) {
+    setup();
+    occupy(RAM0); /* a macro to move from */
+    zassert_equal(cmd(DM_CMD_MOV, 0), DM_OK, "enter move mode");
+    zassert_equal(cmd(DM_CMD_SLOT, RAM0), DM_OK, "select the source");
+    fx.log_n = 0;
+    fx.move_rc = DM_REJECTED_TOO_LARGE;
+
+    dm_result rc = cmd(DM_CMD_SLOT, 0); /* NVS destination */
+    zassert_equal(rc, DM_REJECTED_TOO_LARGE, "the class-cap rejection propagates");
+    zassert_true(log_has("too_large"), "the dedicated message speaks");
+    zassert_equal(fx.last_notify_event, DM_EVT_ERROR_TOO_LARGE, NULL);
+    zassert_false(slot_store_is_empty(&fx.store, RAM0), "the source is intact");
+    zassert_equal(dm_machine_state(&fx.m), DM_STATE_IDLE, "settles back to IDLE");
 }

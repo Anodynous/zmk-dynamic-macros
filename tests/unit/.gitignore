@@ -7,6 +7,8 @@ dm_unit_host_ow_ram
 dm_unit_host_ow_ram.exe
 dm_unit_host_ow_both
 dm_unit_host_ow_both.exe
+dm_unit_host_nvs_cap
+dm_unit_host_nvs_cap.exe
 *.obj
 *.o
 *.pdb

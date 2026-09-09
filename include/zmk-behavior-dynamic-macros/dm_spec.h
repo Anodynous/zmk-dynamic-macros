@@ -54,6 +54,7 @@ typedef enum {
     DM_FB_KNOB,          /* knob_text */
     DM_FB_STATUS_HEADER, /* status header line */
     DM_FB_STATUS_SLOT,   /* slot; one status slot line, optional preview */
+    DM_FB_TOO_LARGE,     /* slot; draft/move exceeds the NVS class cap */
 } dm_fb_kind;
 
 typedef struct {

@@ -11,12 +11,30 @@ config ZMK_BEHAVIOR_DYNAMIC_MACRO_MAX_EVENTS
     default 64
     help
       Maximum events a single macro can hold. Also sizes the in-progress recording
-      buffer. Must be <= AVG_EVENTS_PER_SLOT x number of slots.
+      buffer. Must be <= AVG_EVENTS_PER_SLOT x number of slots. NVS-backed slots
+      have a separate cap (MAX_EVENTS_NVS, defaulting to MAX_EVENTS) because one
+      saved slot must fit a single NVS flash sector.
+
+config ZMK_BEHAVIOR_DYNAMIC_MACRO_MAX_EVENTS_NVS
+    int "Maximum number of events a persisted (NVS) macro can hold"
+    default ZMK_BEHAVIOR_DYNAMIC_MACRO_MAX_EVENTS
+    range 1 ZMK_BEHAVIOR_DYNAMIC_MACRO_MAX_EVENTS
+    depends on ZMK_BEHAVIOR_DYNAMIC_MACRO_PERSIST
+    help
+      Cap for macros stored in NVS slots; recording and RAM slots stay bounded by
+      MAX_EVENTS. One saved slot must fit a single NVS sector, so on 4 KiB-sector
+      parts the usable ceiling is 507 events by default (506 with
+      CONFIG_NVS_DATA_CRC); raise CONFIG_SETTINGS_NVS_SECTOR_SIZE_MULT to allow
+      larger sectors (and macros) -- note that changing the NVS sector size
+      invalidates the whole NVS settings region, wiping ALL saved settings, not
+      just the macros. Assigning or moving a longer macro into an NVS slot is
+      rejected with feedback. The NVS storage buffers are sized by this value,
+      so keeping it at the flash ceiling saves RAM when MAX_EVENTS is larger.
 
 config ZMK_BEHAVIOR_DYNAMIC_MACRO_AVG_EVENTS_PER_SLOT
     int "Average events per slot (sizes the shared recording pool)"
     default 32
-    range 1 64
+    range 1 2048
     help
       All macro slots share one recording pool sized AVG_EVENTS_PER_SLOT x number
       of slots. A single macro can be longer than this average, as long as the

@@ -90,6 +90,7 @@ Or scatter them across layers as needed.
 
 ```ini
 # CONFIG_ZMK_BEHAVIOR_DYNAMIC_MACRO_MAX_EVENTS=64
+# CONFIG_ZMK_BEHAVIOR_DYNAMIC_MACRO_MAX_EVENTS_NVS=64
 # CONFIG_ZMK_BEHAVIOR_DYNAMIC_MACRO_NVS_SLOTS=8
 # CONFIG_ZMK_BEHAVIOR_DYNAMIC_MACRO_RAM_SLOTS=8
 # CONFIG_ZMK_BEHAVIOR_DYNAMIC_MACRO_FEEDBACK_VERBOSE=y
@@ -184,7 +185,8 @@ See [docs/keycodes.md](docs/keycodes.md) for the full binding reference includin
 | Option                | Default | Description                          |
 | --------------------- | ------- | ------------------------------------ |
 | `MAX_EVENTS`          | 64      | Largest single macro (press+release = 2 events) |
-| `AVG_EVENTS_PER_SLOT` | 32      | Per-slot average the shared RAM pool is sized for (1-64) — see [The shared event pool](#the-shared-event-pool-ram-sizing) |
+| `MAX_EVENTS_NVS`      | = `MAX_EVENTS` | Cap for macros stored in **NVS** slots (1-`MAX_EVENTS`) — one saved slot must fit a single NVS flash sector (~507 events at the default 4 KiB sector); NVS buffers are sized by it, so keeping it at the flash ceiling saves RAM |
+| `AVG_EVENTS_PER_SLOT` | 32      | Per-slot average the shared RAM pool is sized for (1-2048) — see [The shared event pool](#the-shared-event-pool-ram-sizing) |
 | `TAP_DELAY`           | 20      | ms between events during playback    |
 | `ASSIGN_TIMEOUT`      | 10000   | ms before pending mode auto-cancels  |
 | `PLAYBACK_BUFFER`     | y       | Buffer keys typed during playback, drain them after (see [Typing during playback](#typing-during-playback)) |
@@ -395,7 +397,7 @@ Feedback level can be adjusted at runtime with `DM_FEEDBACK_INC` / `DM_FEEDBACK_
 ### Storage
 
 - **RAM:** all slots share **one event pool** sized `AVG_EVENTS_PER_SLOT × (NVS_SLOTS + RAM_SLOTS)` events — not a full worst-case buffer per slot. A slot's events live in the pool only while it holds a macro; empty slots cost almost nothing (just a small descriptor). See [The shared event pool](#the-shared-event-pool-ram-sizing) below for how to size it. RAM slot contents are lost on reboot; NVS slots are loaded back from flash into the pool on boot.
-- **NVS (flash):** only written when you save to an NVS slot — `8` byte header + `8` bytes × event count (not padded to `MAX_EVENTS`). Each slot is its own flash record (no pool, no compaction); empty slots use no flash entry. A 2-event macro writes 24 bytes; a full `MAX_EVENTS` macro writes `8 + MAX_EVENTS × 8` bytes (~520 B at the default 64). Shares ZMK settings partition; format version in header — incompatible upgrades clear saved macros.
+- **NVS (flash):** only written when you save to an NVS slot — `8` byte header + `8` bytes × event count (not padded to `MAX_EVENTS_NVS`). Each slot is its own flash record (no pool, no compaction); empty slots use no flash entry. A 2-event macro writes 24 bytes; a full `MAX_EVENTS_NVS` macro writes `8 + MAX_EVENTS_NVS × 8` bytes (~520 B at the default 64). A single saved value must fit **one NVS sector**, so `MAX_EVENTS_NVS` has a flash ceiling: 507 events on the default 4 KiB sector (506 with `CONFIG_NVS_DATA_CRC`). Raise `CONFIG_SETTINGS_NVS_SECTOR_SIZE_MULT` to allow larger sectors (and macros) — changing the NVS sector size invalidates the whole NVS settings region, wiping ALL saved settings, not just the macros. Assigning or moving a longer macro into an NVS slot is rejected with the `[DM TOO LARGE N0]` message; recording and RAM slots stay bounded by `MAX_EVENTS`. Shares ZMK settings partition; format version in header — incompatible upgrades clear saved macros.
 
 ### The shared event pool (RAM sizing)
 
@@ -409,13 +411,14 @@ AVG_EVENTS_PER_SLOT × (NVS_SLOTS + RAM_SLOTS)   events
 
 Each event is 8 bytes, so the pool is `AVG_EVENTS_PER_SLOT × total_slots × 8` bytes. At the defaults (`AVG=32`, 8 NVS + 8 RAM = 16 slots) that's `32 × 16 × 8 ≈ 4 KB` — versus ~8.8 KB if every slot reserved a full 64-event buffer.
 
-**How it behaves.** A macro's events occupy a contiguous run in the pool. A single macro may be **longer than the average** — up to `MAX_EVENTS` — as long as the *total* recorded across all slots stays within the pool. So a few long macros simply leave less room for the rest; you are budgeting a shared total, not a per-slot cap. Deleting or moving a macro frees its space back to the pool (reclaimed lazily — the freed space is compacted back in the next time you save a macro), so space is never permanently lost to fragmentation.
+**How it behaves.** A macro's events occupy a contiguous run in the pool. A single macro may be **longer than the average** — up to `MAX_EVENTS` for RAM slots (and `MAX_EVENTS_NVS` for NVS slots) — as long as the *total* recorded across all slots stays within the pool. So a few long macros simply leave less room for the rest; you are budgeting a shared total, not a per-slot cap. Deleting or moving a macro frees its space back to the pool (reclaimed lazily — the freed space is compacted back in the next time you save a macro), so space is never permanently lost to fragmentation.
 
 **The two knobs and what each does:**
 
 | Setting | Default | What it controls | Effect of raising it |
 | --- | --- | --- | --- |
-| `MAX_EVENTS` | 64 | The largest a **single** macro can be, and the size of the in-progress recording buffer. | A longer individual macro is allowed; the recording buffer grows by `MAX_EVENTS × 8` bytes. Does **not** change the pool size. |
+| `MAX_EVENTS` | 64 | The largest a **single** macro can be (recording and RAM slots), and the size of the in-progress recording buffer. | A longer individual macro is allowed; the recording buffer grows by `MAX_EVENTS × 8` bytes. Does **not** change the pool size. |
+| `MAX_EVENTS_NVS` | = `MAX_EVENTS` | The cap for **NVS-slot** macros — one saved slot must fit a single NVS sector, so it defaults to `MAX_EVENTS` but has a flash ceiling (~507 events at a 4 KiB sector). | Longer macros can be *persisted*; the NVS save/load buffers grow by `MAX_EVENTS_NVS × 8` bytes. A macro above the cap is rejected for NVS slots (`[DM TOO LARGE N0]`) but can still be saved to RAM. Keep it at the flash ceiling to save RAM when `MAX_EVENTS` is larger. |
 | `AVG_EVENTS_PER_SLOT` | 32 | The **per-slot average** the shared pool is budgeted for — i.e. the pool's total size. | The pool grows, so more total events can be stored across all slots at once. Costs `total_slots × 8` bytes of RAM per unit. |
 
 **The rule that ties them together:** `MAX_EVENTS ≤ AVG_EVENTS_PER_SLOT × total_slots` (a single macro can never be allowed to exceed the whole pool — this is a build-time assertion).
@@ -450,6 +453,7 @@ Runs on central half only. Both halves' keystrokes are captured during recording
 | `[DM FULL]` during recording | Recording buffer reached MAX_EVENTS | Increase `MAX_EVENTS` or record a shorter sequence. The partial recording can still be saved. |
 | `[DM SLOT N0 FULL]` when assigning | Shared event pool exhausted — no room for this macro across all slots | Increase `AVG_EVENTS_PER_SLOT` (grows the pool), or free space by deleting a stored macro. Slots already saved are unaffected. See [The shared event pool](#the-shared-event-pool-ram-sizing). |
 | `[DM SAVE FAILED N0]` | NVS write error | Check flash health. Settings partition may be full — reduce NVS_SLOTS or MAX_EVENTS. |
+| `[DM TOO LARGE N0]` when assigning/moving to an NVS slot | The macro exceeds `MAX_EVENTS_NVS` (one saved value must fit a single NVS sector) | Save the macro to a RAM slot instead, or raise `MAX_EVENTS_NVS` — bounded by the sector ceiling (507 events at 4 KiB; `CONFIG_SETTINGS_NVS_SECTOR_SIZE_MULT` allows more but wipes the whole NVS settings region). The recording and any RAM-slot copy are unaffected. |
 | `[DM SAVE QUEUE FULL N0]` | Too many storage operations queued | Wait a moment and retry. Occurs when rapidly saving/deleting multiple NVS slots. |
 | Slot shows occupied but was deleted | NVS delete still in progress | The slot is marked pending-delete and will clear shortly. It cannot be played or assigned during this time. |
 | Feedback not appearing | Feedback level set to OFF | Press `DM_FEEDBACK_INC` to raise the level, or set `FEEDBACK_VERBOSE` in .conf. |

@@ -171,6 +171,12 @@ dm_result slot_store_move(slot_store *s, int src, int dst) {
     if (!slot_empty(s, dst)) {
         return DM_REJECTED_OCCUPIED;
     }
+    /* Per-class cap: an NVS slot can never hold more than MAX_EVENTS_NVS (one
+     * saved value must fit a single NVS sector), so refuse a longer source up
+     * front — src stays exactly as it was. */
+    if (slot_is_nvs(dst) && s->meta[src].count > MAX_EVENTS_NVS) {
+        return DM_REJECTED_TOO_LARGE;
+    }
 
     /*
      * Two independent NVS ops (write dst, delete src) with no atomicity. Order
@@ -319,6 +325,12 @@ dm_result slot_store_draft_commit(slot_store *s, int dst) {
     }
 
     uint32_t n = s->draft.event_count; /* n <= MAX_EVENTS by construction */
+    /* Per-class cap: an NVS slot can never hold more than MAX_EVENTS_NVS, so a
+     * longer draft is refused before anything is committed — the draft survives
+     * for a RAM target, and the arena is untouched. */
+    if (slot_is_nvs(dst) && n > MAX_EVENTS_NVS) {
+        return DM_REJECTED_TOO_LARGE;
+    }
     uint16_t used;
     if (!arena_repack(s, &used)) {
         return DM_REJECTED_FULL; /* a slot is playing: cannot compact safely */
@@ -341,7 +353,9 @@ dm_result slot_store_draft_commit(slot_store *s, int dst) {
 /* ---- restore surface (dm_nvs boot load + DM_TEST_RELOAD) -------------------- */
 
 bool slot_store_load(slot_store *s, int idx, const struct dm_event *events, uint32_t count) {
-    if (!idx_valid(idx) || count > MAX_EVENTS) {
+    /* NVS-only restore surface: an NVS slot can never hold more than the NVS
+     * class cap (one saved value must fit a single flash sector). */
+    if (!idx_valid(idx) || count > MAX_EVENTS_NVS) {
         return false;
     }
     free_slot(s, idx); /* drop any prior occupant before measuring free space */

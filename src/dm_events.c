@@ -64,6 +64,7 @@ static enum zmk_dynamic_macro_event_type map_event(dm_notify_code machine_event)
     case DM_EVT_ERROR_DELETE_FAILED:return ZMK_DYNAMIC_MACRO_ERROR_DELETE_FAILED;
     case DM_EVT_ERROR_SAVE_QUEUE_FULL:   return ZMK_DYNAMIC_MACRO_ERROR_SAVE_QUEUE_FULL;
     case DM_EVT_ERROR_DELETE_QUEUE_FULL: return ZMK_DYNAMIC_MACRO_ERROR_DELETE_QUEUE_FULL;
+    case DM_EVT_ERROR_TOO_LARGE:         return ZMK_DYNAMIC_MACRO_ERROR_TOO_LARGE;
     case DM_EVT__COUNT:             break; /* not a real code */
     }
     return ZMK_DYNAMIC_MACRO_ERROR_NO_RECORDING;

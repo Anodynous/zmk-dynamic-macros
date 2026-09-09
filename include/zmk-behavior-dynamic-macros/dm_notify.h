@@ -55,6 +55,7 @@ typedef enum {
     DM_EVT_ERROR_DELETE_FAILED,
     DM_EVT_ERROR_SAVE_QUEUE_FULL,
     DM_EVT_ERROR_DELETE_QUEUE_FULL,
+    DM_EVT_ERROR_TOO_LARGE, /* assign/move target is an NVS slot below the draft size */
     DM_EVT__COUNT, /* sentinel — keep last; lets map_event be exhaustively checked */
 } dm_notify_code;
 

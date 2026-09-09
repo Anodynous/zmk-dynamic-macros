@@ -53,6 +53,7 @@ enum zmk_dynamic_macro_event_type {
     ZMK_DYNAMIC_MACRO_ERROR_CHAIN_FULL,       /* chain would exceed MAX_EVENTS */
     ZMK_DYNAMIC_MACRO_ERROR_SAVE_QUEUE_FULL,  /* split from ERROR_QUEUE_FULL */
     ZMK_DYNAMIC_MACRO_ERROR_DELETE_QUEUE_FULL,/* split from ERROR_QUEUE_FULL */
+    ZMK_DYNAMIC_MACRO_ERROR_TOO_LARGE,        /* assign/move target is an NVS slot below the draft/macro size */
 };
 
 struct zmk_dynamic_macro_state_changed {

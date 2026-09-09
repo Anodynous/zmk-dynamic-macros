@@ -243,6 +243,7 @@ struct dm_msg_table {
     const char *preview_end;
     const char *fb_prefix;
     const char *close;
+    const char *too_large;
 };
 
 static const struct dm_msg_table msg_arrow = {
@@ -255,6 +256,7 @@ static const struct dm_msg_table msg_arrow = {
     .chain = ">>",
     .preview_start = ":'", .preview_end = "'",
     .fb_prefix = ">FB:", .close = "",
+    .too_large = "!L",
 };
 
 static const struct dm_msg_table msg_full_punct = {
@@ -268,6 +270,7 @@ static const struct dm_msg_table msg_full_punct = {
     .chain = "[DM +",
     .preview_start = ": '", .preview_end = "'",
     .fb_prefix = "[DM FB:", .close = "]",
+    .too_large = "[DM TOO LARGE ",
 };
 
 static const struct dm_msg_table msg_full_plain = {
@@ -281,6 +284,7 @@ static const struct dm_msg_table msg_full_plain = {
     .chain = "DM PLUS",
     .preview_start = "", .preview_end = "",
     .fb_prefix = "DM FB ", .close = "",
+    .too_large = "DM TOO LARGE ",
 };
 
 static const struct dm_msg_table *msg(dm_fb_style style, dm_locale locale) {
@@ -500,6 +504,13 @@ bool dm_feedback_build(const dm_feedback_spec *spec, dm_fb_style style, dm_local
 
     case DM_FB_DELETE_FAILED:
         build_delete_failed(m, style, locale, facts, sink, s);
+        return false;
+
+    case DM_FB_TOO_LARGE:
+        /* arrow "!L<N>", full "[DM TOO LARGE N<slot>]" / "DM TOO LARGE N<slot>" */
+        emit_str(locale, sink, m->too_large);
+        build_slot_ref(m, style, locale, facts, sink, s);
+        emit_str(locale, sink, m->close);
         return false;
 
     case DM_FB_SAVE_FAILED:

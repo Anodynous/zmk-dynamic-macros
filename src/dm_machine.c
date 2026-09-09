@@ -305,6 +305,14 @@ static dm_result slot_assign(dm_machine *m, int idx) {
         }
     }
     dm_result rc = m->cb->store_draft_commit(m->cb->ctx, idx);
+    if (rc == DM_REJECTED_TOO_LARGE) {
+        /* the draft is longer than the NVS class cap and idx is an NVS slot:
+         * the take is kept — press a RAM slot, or stop and re-record shorter. */
+        enter_typing(m, DM_STATE_PENDING_ASSIGN);
+        notify(m, DM_EVT_ERROR_TOO_LARGE, idx, -1);
+        speak(m, DM_FB_TOO_LARGE, idx, -1, false);
+        return rc;
+    }
     if (rc != DM_OK) {
         enter_typing(m, DM_STATE_PENDING_ASSIGN);
         notify(m, DM_EVT_ERROR_SLOT_OCCUPIED, idx, -1);
@@ -414,6 +422,13 @@ static dm_result slot_move(dm_machine *m, int idx) {
     enter_typing(m, DM_STATE_IDLE);
 
     dm_result rc = m->cb->store_move(m->cb->ctx, src, dst);
+    if (rc == DM_REJECTED_TOO_LARGE) {
+        /* src holds more events than the NVS class cap and dst is an NVS slot:
+         * nothing moved, src intact. The IDLE return-state is already parked. */
+        notify(m, DM_EVT_ERROR_TOO_LARGE, dst, -1);
+        speak(m, DM_FB_TOO_LARGE, dst, -1, false);
+        return rc;
+    }
     if (rc == DM_SAVE_QUEUE_FULL) {
         notify(m, DM_EVT_ERROR_SAVE_QUEUE_FULL, dst, -1);
         speak(m, DM_FB_SAVE_QFULL, dst, -1, false);
@@ -521,6 +536,11 @@ void dm_machine_typing_finished(dm_machine *m) {
 
     if (persist_slot >= 0) {
         dm_result rc = m->cb->store_persist(m->cb->ctx, persist_slot);
+        /* Only queue-full is reachable here: the store enforces the NVS class
+         * cap before a slot can ever hold an over-cap count (commit/move/boot
+         * load), so persist's DM_REJECTED_TOO_LARGE cannot fire — and an
+         * unreachable branch would only add a feedback path for a state the
+         * store already made impossible. */
         if (rc == DM_SAVE_QUEUE_FULL) {
             /* the deferred assign-persist enqueue was refused: the macro will not
              * survive a reboot. Speak it from the settled state (a fresh feedback

@@ -404,7 +404,7 @@ ZTEST(slot_store, load_rejects_overflow) {
 
     bool ok = slot_store_load(s, NVS_A, evs, MAX_EVENTS + 1);
 
-    zassert_false(ok, "count past MAX_EVENTS is rejected");
+    zassert_false(ok, "count past the NVS class cap is rejected");
     zassert_equal(s->meta[NVS_A].count, 0, "slot untouched on rejected load");
 }
 
@@ -465,12 +465,14 @@ static dm_result commit_tagged(slot_store *s, int dst, uint32_t n, uint16_t tag)
 /* Regression (native_sim pool_full: slot 0 played nothing): commit several slots
  * to fill the pool, then a rejected over-full commit, and confirm EVERY stored
  * slot still reads its own data. A rejected draft_commit must not disturb the
- * slots already in the arena. */
+ * slots already in the arena. The head slots are NVS macros sized to the NVS
+ * class cap (cap/2 and cap events), so the test applies on every rail. */
 ZTEST(slot_store, rejected_commit_leaves_stored_slots_intact) {
     slot_store *s = fresh_store();
     /* Tagged small head slots, then pad the rest of the pool with MAX_EVENTS-sized
      * filler so the pool is EXACTLY full (each slot <= MAX_EVENTS). */
-    uint32_t a = 10, b = 20;
+    uint32_t a = (uint32_t)MAX_EVENTS_NVS / 2;
+    uint32_t b = (uint32_t)MAX_EVENTS_NVS;
     zassert_equal(commit_tagged(s, NVS_A, a, 0xAA), DM_OK, "slot A committed");
     zassert_equal(commit_tagged(s, NVS_B, b, 0xBB), DM_OK, "slot B committed");
     int dst = RAM_A;
@@ -516,19 +518,21 @@ ZTEST(slot_store, delete_then_commit_reclaims_space) {
     int filled = fill_arena(s);
     zassert_true(filled >= 2, "host arena holds at least two full slots");
 
-    /* Free a low RAM-class hole so no NVS async is involved. Use slot 0 (NVS) via
-     * the immediate completion path instead: delete + complete. */
+    /* Free slot 0 (NVS) via the delete + immediate-completion path, leaving a
+     * hole at offset 0 under live slots. */
     slot_store_delete(s, 0);
     uint32_t gen = s->slot_generation[0];
     slot_store_complete_delete(s, 0, gen, true);
     zassert_equal(s->meta[0].count, 0, "deleted slot freed");
 
     /* Now MAX_EVENTS of free space exists, but as a hole at offset 0 with live
-     * slots above it. A commit must compact to place the new macro. */
+     * slots above it. A commit must compact to place the new macro. The target
+     * is a RAM slot: the NVS class cap may be below MAX_EVENTS. */
     fill_draft(s, MAX_EVENTS);
-    dm_result r = slot_store_draft_commit(s, 0);
+    int ram_dst = NVS_SLOTS;
+    dm_result r = slot_store_draft_commit(s, ram_dst);
     zassert_equal(r, DM_OK, "commit reclaims the freed hole via compaction");
-    zassert_equal(s->meta[0].count, MAX_EVENTS, "new macro stored");
+    zassert_equal(s->meta[ram_dst].count, MAX_EVENTS, "new macro stored");
     zassert_equal(arena_live_test(s), ARENA_EVENTS, "pool full again, no bytes leaked");
 }
 
@@ -644,20 +648,21 @@ ZTEST(slot_store, repack_after_move_preserves_slot_identity) {
  * then lets the same commit succeed. */
 ZTEST(slot_store, commit_while_playing_rejected_no_move) {
     slot_store *s = fresh_store();
-    seed_slot(s, NVS_A, 10); /* [0,10)  */
-    seed_slot(s, NVS_B, 10); /* [10,20) */
+    /* A/B stay within the NVS class cap (the draft commit below targets NVS_A). */
+    seed_slot(s, NVS_A, 8); /* [0,8)   */
+    seed_slot(s, NVS_B, 8); /* [8,16)  */
     /* fill the rest so only a compactable hole could satisfy a new commit */
     int next = RAM_A;
     while (arena_live_test(s) + MAX_EVENTS <= ARENA_EVENTS) {
         seed_slot(s, next++, MAX_EVENTS);
     }
-    /* free A, leaving a 10-event hole at offset 0 below live slots */
+    /* free A, leaving an 8-event hole at offset 0 below live slots */
     slot_store_delete(s, NVS_A);
     slot_store_complete_delete(s, NVS_A, s->slot_generation[NVS_A], true);
     uint16_t b_start_before = s->meta[NVS_B].start;
 
     slot_store_mark_playing(s, NVS_B);
-    fill_draft(s, 10);
+    fill_draft(s, 8);
     dm_result r = slot_store_draft_commit(s, NVS_A);
     zassert_equal(r, DM_REJECTED_FULL, "commit needing compaction is rejected while playing");
     zassert_equal(s->meta[NVS_B].start, b_start_before, "no bytes moved: B's offset unchanged");
@@ -694,3 +699,53 @@ ZTEST(slot_store, play_pending_delete_bytes_pinned) {
     zassert_equal(s->meta[NVS_A].start, a_start, "playing+pending slot's bytes not relocated");
     zassert_equal(s->meta[NVS_A].count, a_count, "playing+pending slot's count intact");
 }
+
+/* ---- per-class NVS cap (rail: MAX_EVENTS_NVS < MAX_EVENTS) -----------------
+ * An NVS slot can never hold more than MAX_EVENTS_NVS (one saved value must fit
+ * a single NVS sector); RAM slots stay bounded by MAX_EVENTS. These pins only
+ * compile on the nvs_cap rail, where the two differ. */
+#if MAX_EVENTS_NVS < MAX_EVENTS
+
+ZTEST(slot_store, nvs_cap_commit_rejected_draft_kept) {
+    slot_store *s = fresh_store();
+    fill_draft(s, (uint32_t)MAX_EVENTS_NVS + 2);
+
+    dm_result r = slot_store_draft_commit(s, NVS_A);
+    zassert_equal(r, DM_REJECTED_TOO_LARGE, "a draft over the NVS cap is refused for an NVS slot");
+    zassert_true(slot_store_is_empty(s, NVS_A), "the slot stays empty");
+    zassert_equal(g_nvs.save_calls, 0, "the sink is never touched");
+    zassert_equal(slot_store_draft_count(s), (uint32_t)MAX_EVENTS_NVS + 2,
+                  "the draft survives for a RAM target");
+
+    zassert_equal(slot_store_draft_commit(s, RAM_A), DM_OK, "the same draft commits to a RAM slot");
+    zassert_equal(s->meta[RAM_A].count, (uint16_t)MAX_EVENTS_NVS + 2, "RAM slot holds it");
+}
+
+ZTEST(slot_store, nvs_cap_commit_at_limit_ok) {
+    slot_store *s = fresh_store();
+    fill_draft(s, MAX_EVENTS_NVS);
+    zassert_equal(slot_store_draft_commit(s, NVS_A), DM_OK, "exactly the cap commits");
+    zassert_equal(s->meta[NVS_A].count, (uint16_t)MAX_EVENTS_NVS, NULL);
+}
+
+ZTEST(slot_store, nvs_cap_move_rejected_src_intact) {
+    slot_store *s = fresh_store();
+    seed_slot(s, RAM_A, (uint32_t)MAX_EVENTS_NVS + 2);
+
+    dm_result r = slot_store_move(s, RAM_A, NVS_A);
+    zassert_equal(r, DM_REJECTED_TOO_LARGE, "moving a too-large RAM macro to NVS is refused");
+    zassert_equal(s->meta[RAM_A].count, (uint16_t)MAX_EVENTS_NVS + 2, "src intact");
+    zassert_true(slot_store_is_empty(s, NVS_A), "dst untouched");
+    zassert_equal(g_nvs.save_calls, 0, "no save attempted");
+    zassert_equal(g_nvs.del_calls, 0, "no delete attempted");
+}
+
+ZTEST(slot_store, nvs_cap_move_at_limit_ok) {
+    slot_store *s = fresh_store();
+    seed_slot(s, RAM_A, MAX_EVENTS_NVS);
+    zassert_equal(slot_store_move(s, RAM_A, NVS_A), DM_OK, "a macro at the cap moves");
+    zassert_equal(s->meta[NVS_A].count, (uint16_t)MAX_EVENTS_NVS, "dst holds it");
+    zassert_true(slot_store_is_empty(s, RAM_A), "src cleared");
+}
+
+#endif /* MAX_EVENTS_NVS < MAX_EVENTS */

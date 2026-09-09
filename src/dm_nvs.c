@@ -42,6 +42,15 @@ struct dm_slot_header {
 
 BUILD_ASSERT(sizeof(struct dm_slot_header) == 8, "dm_slot_header must be 8 bytes packed");
 
+/* A slot's events as persisted, sized by the NVS class cap rather than the
+ * draft's MAX_EVENTS: a stored NVS slot can never hold more than MAX_EVENTS_NVS
+ * (one saved value must fit a single NVS sector), and the op/msgq/save/load/
+ * export buffers must not pay for events the flash can never hold. */
+struct dm_nvs_slot {
+    uint32_t event_count;
+    struct dm_event events[MAX_EVENTS_NVS];
+};
+
 /* ---- the single instance's wiring (file-scoped) ---------------------------- */
 
 static slot_store        *dm_store;
@@ -65,7 +74,7 @@ struct dm_storage_op {
     enum dm_storage_op_type type;
     int                     slot_idx;
     uint32_t                generation;
-    struct dm_slot          slot;
+    struct dm_nvs_slot      slot;
 #if DM_TYPING_ENABLED
     uint8_t level;
     uint8_t style;
@@ -186,7 +195,7 @@ static void log_stack_headroom(const char *tag) {
 
 static void dm_storage_work_handler(struct k_work *work) {
     static struct dm_storage_op op;
-    static uint8_t save_buf[sizeof(struct dm_slot_header) + MAX_EVENTS * sizeof(struct dm_event)];
+    static uint8_t save_buf[sizeof(struct dm_slot_header) + MAX_EVENTS_NVS * sizeof(struct dm_event)];
 
     DM_LOG_STACK_HEADROOM("Storage worker start");
 
@@ -267,6 +276,15 @@ static void dm_storage_work_handler(struct k_work *work) {
 
 static dm_result enqueue(enum dm_storage_op_type type, int slot_idx,
                          const struct dm_event *events, uint32_t count, uint32_t generation) {
+    /* Buffer-owner guard: op.slot.events holds MAX_EVENTS_NVS, and the memcpy
+     * below would run past it for a longer count. The store enforces the cap at
+     * commit/move and sink_save re-checks it, but this owns the buffer, so the
+     * bound lives here — safe regardless of which future path enqueues a save. */
+    if (type == DM_STORAGE_OP_SAVE && count > MAX_EVENTS_NVS) {
+        LOG_ERR("NVS save refused: slot %d holds %u events, NVS cap is %d", slot_idx,
+                (unsigned int)count, MAX_EVENTS_NVS);
+        return DM_REJECTED_TOO_LARGE;
+    }
     LOG_INF("Storage %s: slot %d, events=%u, gen=%u (op struct %u bytes)",
             (type == DM_STORAGE_OP_SAVE) ? "SAVE" : "DELETE", slot_idx, (unsigned int)count,
             (unsigned int)generation, (unsigned int)sizeof(struct dm_storage_op));
@@ -302,6 +320,17 @@ static dm_result enqueue(enum dm_storage_op_type type, int slot_idx,
 static dm_result sink_save(void *ctx, int slot, const struct dm_event *events, uint32_t count,
                            uint32_t generation) {
     (void)ctx;
+    /* Defense in depth: the store enforces the cap at commit/move time, but a
+     * save past MAX_EVENTS_NVS must never reach settings_save_one — NVS would
+     * refuse the value anyway (it cannot span sectors). enqueue() independently
+     * refuses over-cap counts to protect its own buffer; this check is the
+     * user-facing boundary that turns such a save into a reject, not an
+     * overflow. */
+    if (count > MAX_EVENTS_NVS) {
+        LOG_ERR("NVS save refused: slot %d holds %u events, NVS cap is %d", slot,
+                (unsigned int)count, MAX_EVENTS_NVS);
+        return DM_REJECTED_TOO_LARGE;
+    }
     DM_LOG_STACK_HEADROOM("Sink SAVE");
     return enqueue(DM_STORAGE_OP_SAVE, slot, events, count, generation);
 }
@@ -325,7 +354,7 @@ const dm_nvs_sink *dm_nvs_sink_get(void) {
 #if DM_TYPING_ENABLED
 void dm_nvs_save_knobs(uint8_t level, uint8_t style, bool erase) {
     /* Static for the same reason as in enqueue(): this struct embeds
-     * events[MAX_EVENTS] and must not be a local on the 2 KiB main stack. */
+     * events[MAX_EVENTS_NVS] and must not be a local on the 2 KiB main stack. */
     static struct dm_storage_op op;
     memset(&op, 0, sizeof(op));
     op.type = DM_STORAGE_OP_SAVE_KNOBS;
@@ -381,7 +410,7 @@ static bool parse_slot(const char *suffix, int *slot_idx) {
 }
 
 static int dm_settings_set(const char *name, size_t len, settings_read_cb read_cb, void *cb_arg) {
-    static uint8_t load_buf[sizeof(struct dm_slot_header) + MAX_EVENTS * sizeof(struct dm_event)];
+    static uint8_t load_buf[sizeof(struct dm_slot_header) + MAX_EVENTS_NVS * sizeof(struct dm_event)];
 
     const char *suffix = match_device(name);
     if (suffix == NULL) {
@@ -440,9 +469,9 @@ static int dm_settings_set(const char *name, size_t len, settings_read_cb read_c
         settings_delete(key);
         return 0;
     }
-    if (header->event_count > MAX_EVENTS) {
-        LOG_WRN("Slot %d: event_count %u exceeds MAX_EVENTS", slot_idx,
-                (unsigned int)header->event_count);
+    if (header->event_count > MAX_EVENTS_NVS) {
+        LOG_WRN("Slot %d: event_count %u exceeds the NVS cap %d", slot_idx,
+                (unsigned int)header->event_count, MAX_EVENTS_NVS);
         return -EINVAL;
     }
     size_t events_size = header->event_count * sizeof(struct dm_event);
@@ -471,7 +500,7 @@ static int dm_settings_commit(void) {
 
 static int dm_settings_export(int (*storage_func)(const char *name, const void *value,
                                                   size_t val_len)) {
-    static uint8_t export_buf[sizeof(struct dm_slot_header) + MAX_EVENTS * sizeof(struct dm_event)];
+    static uint8_t export_buf[sizeof(struct dm_slot_header) + MAX_EVENTS_NVS * sizeof(struct dm_event)];
 
     /* export reads back ONLY through the public query API (the one documented
      * up-read, single-instance-anchored). */
@@ -561,11 +590,12 @@ void dm_nvs_init(slot_store *store, struct dm_machine *machine, struct dm_feedba
                        K_KERNEL_STACK_SIZEOF(dm_storage_work_q_stack), DM_STORAGE_PRIORITY, NULL);
     dm_storage_started = true;
     LOG_INF("Storage ready: worker stack %d bytes, op struct %u bytes (x %u queued), "
-            "max slot payload %zu bytes (header %zu + %u events x %u bytes)",
+            "NVS cap %d events (max slot payload %zu bytes, header %zu + %u x %u)",
             (int)K_KERNEL_STACK_SIZEOF(dm_storage_work_q_stack),
             (unsigned int)sizeof(struct dm_storage_op), DM_STORAGE_QUEUE_LEN,
-            sizeof(struct dm_slot_header) + (size_t)MAX_EVENTS * sizeof(struct dm_event),
-            sizeof(struct dm_slot_header), (unsigned int)MAX_EVENTS,
+            MAX_EVENTS_NVS,
+            sizeof(struct dm_slot_header) + (size_t)MAX_EVENTS_NVS * sizeof(struct dm_event),
+            sizeof(struct dm_slot_header), (unsigned int)MAX_EVENTS_NVS,
             (unsigned int)sizeof(struct dm_event));
 }
 

@@ -37,6 +37,25 @@ release line it targets, while the **patch** is the module's own.
   scaffolding characters with no shift-level FI key (`[`, `]`, `{`, `}`,
   `@`, `$`, `~`, `\`, `|`) are typed via AltGr (LALT). ARROW feedback style is
   available on FI builds, as every arrow-grammar character is FI-reachable.
+- `ZMK_BEHAVIOR_DYNAMIC_MACRO_MAX_EVENTS_NVS` (default: `MAX_EVENTS`, range
+  1..`MAX_EVENTS`, requires `PERSIST`): an independent cap for macros stored
+  in **NVS** slots. Recording and RAM slots stay bounded by `MAX_EVENTS`.
+  One saved NVS value must fit a single flash sector, so the effective
+  ceiling is ~507 events on the default 4 KiB sector (raise
+  `CONFIG_SETTINGS_NVS_SECTOR_SIZE_MULT` to allow larger sectors and macros);
+  keeping the cap at the flash ceiling — below `MAX_EVENTS` — saves the RAM
+  the NVS save/load buffers would otherwise occupy. Assigning or moving a
+  macro longer than the cap into an NVS slot is now rejected with a dedicated
+  `[DM TOO LARGE N0]` feedback message, a `ZMK_DYNAMIC_MACRO_ERROR_TOO_LARGE`
+  state-changed event, and the draft/take is kept for a RAM target; the
+  storage backend also re-checks the cap at save time as a defense in depth.
+
+### Changed
+
+- `ZMK_BEHAVIOR_DYNAMIC_MACRO_AVG_EVENTS_PER_SLOT` range widened from 1–64 to
+  1–2048 so the shared event pool can be sized for `MAX_EVENTS` values above
+  64 (the pool must still hold one full macro: the existing
+  `MAX_EVENTS ≤ AVG × slots` build-time assertion is unchanged).
 
 ## [0.3.1] - 2026-06-07
 

@@ -105,7 +105,8 @@ int                 slot_store_count(const slot_store *s, slot_class cls);
  * success is src zeroed+deleted. dst-enqueue failure rolls dst back, src intact
  * (returns DM_SAVE_QUEUE_FULL). src delete-enqueue failure leaves dst safe and
  * surfaces DM_DELETE_QUEUE_FULL. Returns DM_REJECTED_EMPTY if src empty,
- * DM_REJECTED_OCCUPIED if dst occupied.
+ * DM_REJECTED_OCCUPIED if dst occupied, or DM_REJECTED_TOO_LARGE if src holds
+ * more events than the NVS class cap (dst an NVS slot) — src stays intact.
  * NOTE: src == dst never reaches the store — the machine's guard turns a
  * same-slot move into a CANCEL, not a rejection. */
 dm_result slot_store_move(slot_store *s, int src, int dst);
@@ -123,7 +124,9 @@ dm_result slot_store_delete(slot_store *s, int idx);
  * machine calls persist from dm_machine_typing_finished() — after the SAVED
  * feedback has typed from a settled state. At feedback levels that type
  * nothing, typing-finished fires synchronously, so the persist is immediate.
- * Returns DM_OK | DM_SAVE_QUEUE_FULL. */
+ * Returns DM_OK | DM_SAVE_QUEUE_FULL | DM_REJECTED_TOO_LARGE (unreachable: every
+ * NVS write path — commit, move, boot-load — enforces the class cap first; the
+ * storage backend re-checks it only as defense in depth). */
 dm_result slot_store_persist(slot_store *s, int idx);
 
 /* ---- Draft buffer (the recording buffer) ---------------------------------- */
@@ -134,8 +137,10 @@ uint32_t  slot_store_draft_count(const slot_store *s);              /* guard inp
 dm_result slot_store_draft_chain(slot_store *s, int src);          /* chain src into draft */
 /* Assign: draft -> dst, RAM ONLY. Compacts the shared arena (safe: never while a
  * slot is playing) then bump-allocates the draft's events into it. Returns
- * DM_OK | DM_REJECTED_OCCUPIED (dst not empty) | DM_REJECTED_FULL (the draft does
- * not fit the free arena space, or a slot is playing so the arena can't compact).
+ * DM_OK | DM_REJECTED_OCCUPIED (dst not empty) | DM_REJECTED_TOO_LARGE (the draft
+ * exceeds the NVS class cap and dst is an NVS slot — the draft is kept) |
+ * DM_REJECTED_FULL (the draft does not fit the free arena space, or a slot is
+ * playing so the arena can't compact).
  * Persistence is the separate slot_store_persist() above, deferred to
  * typing-finished. */
 dm_result slot_store_draft_commit(slot_store *s, int dst);
@@ -144,8 +149,9 @@ dm_result slot_store_draft_commit(slot_store *s, int dst);
 
 /* Raw populate of slot idx from decoded storage: no sink echo, no generation
  * bump, clears a stale pending bit. Serialization validation (version, length)
- * is dm_nvs's job; the store defends count <= MAX_EVENTS and the shared-arena
- * capacity (false = reject either). Never called by the machine. */
+ * is dm_nvs's job; the store defends count <= MAX_EVENTS_NVS (NVS slots only —
+ * the class cap) and the shared-arena capacity (false = reject either).
+ * Never called by the machine. */
 bool slot_store_load(slot_store *s, int idx, const struct dm_event *events, uint32_t count);
 
 /* Zero all slots, pending bits, and generations ahead of a settings_load re-run
