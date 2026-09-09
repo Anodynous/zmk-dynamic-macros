@@ -152,26 +152,30 @@ static void knob_key(const char *leaf, char *key, size_t key_len) {
 
 /* Report the calling thread's remaining stack headroom at each save/delete
  * stage. With CONFIG_LOG_MODE_IMMEDIATE the last line printed before a crash
- * names the stage that died; a near-zero (or negative) free-bytes value there
- * indicates stack exhaustion. The delta between the sink_* and enqueue lines
- * is enqueue's full-size op struct landing on the caller's stack.
+ * names the stage that died; a near-zero free-bytes value there indicates
+ * stack exhaustion. The delta between the sink_* and enqueue lines is
+ * enqueue's full-size op struct landing on the caller's stack.
  *
- * Excluded at compile time when CONFIG_LOG is off — no overhead in normal
+ * Relies on Zephyr's thread-introspection pair, which only exists when both
+ * CONFIG_THREAD_STACK_INFO (per-thread stack size) and CONFIG_INIT_STACKS
+ * (0xAA stack fill, so k_thread_stack_space_get() can measure usage) are
+ * enabled. Excluded at compile time otherwise — no overhead in normal
  * operation.
  */
-#if IS_ENABLED(CONFIG_LOG)
+#if IS_ENABLED(CONFIG_LOG) && IS_ENABLED(CONFIG_THREAD_STACK_INFO) && \
+    IS_ENABLED(CONFIG_INIT_STACKS)
 static void log_stack_headroom(const char *tag) {
     struct k_thread *t = k_current_get();
     if (t == NULL) {
         LOG_INF("%s: running in ISR context", tag);
         return;
     }
-    struct k_thread_stack_info info = {0};
-    if (k_thread_stack_info_get(t, &info) != 0) {
+    size_t unused = 0;
+    if (k_thread_stack_space_get(t, &unused) != 0) {
         return;
     }
-    LOG_INF("%s: thread '%s' stack %zu bytes total, %ld bytes free", tag,
-            k_thread_name_get(t), info.size, (long)(info.current - info.start));
+    LOG_INF("%s: thread '%s' stack %zu bytes total, %zu bytes free", tag,
+            k_thread_name_get(t), t->stack_info.size, unused);
 }
 #define DM_LOG_STACK_HEADROOM(tag) log_stack_headroom(tag)
 #else
