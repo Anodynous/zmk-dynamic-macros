@@ -48,6 +48,17 @@ config ZMK_BEHAVIOR_DYNAMIC_MACRO_TAP_DELAY
     int "Delay in ms between each event during playback"
     default 20
 
+config ZMK_BEHAVIOR_DYNAMIC_MACRO_DELAY_MS
+    int "Default delay in ms inserted by a DM_DELAY binding with param2 = 0"
+    default 50
+    range 1 10000
+    help
+      A DM_DELAY binding records a delay marker into the macro at the current
+      recording position; during playback the emitter pauses its own duration
+      (on top of the base TAP_DELAY) at that point instead of typing anything.
+      The binding's param2 overrides this default per key; param2 = 0 (or a
+      key bound with no explicit value) falls back to this Kconfig value.
+
 config ZMK_BEHAVIOR_DYNAMIC_MACRO_PLAYBACK_BUFFER
     bool "Buffer user keypresses during macro playback and drain them after"
     default y

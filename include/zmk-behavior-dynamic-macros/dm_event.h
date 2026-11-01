@@ -7,6 +7,7 @@
 #ifndef DM_EVENT_H
 #define DM_EVENT_H
 
+#include <stdbool.h>
 #include <stdint.h>
 
 /*
@@ -47,6 +48,35 @@ struct dm_event {
  * (a typedef alias in dm_render.h); slot_store returns `struct dm_slot_view`. Same
  * type, two names — never copy fields between them.
  */
+/*
+ * Sentinel usage page for DELAY marker events. 0xFFFF is never a real HID usage
+ * page (ZMK emits 0x07 keyboard, 0x09 button, 0x0C consumer; the USB spec
+ * reserves 0xFF00-0xFFFF), so a stored event carrying it can only have been
+ * written by dm_event_make_delay — the DM_DELAY recording key inserts one at
+ * the draft cursor and the playback emitter converts it into an extra pause of
+ * `keycode` milliseconds instead of raising a keycode.
+ */
+#define DM_EVENT_DELAY_PAGE 0xFFFF
+
+/* True when `ev` is a delay marker (not a real keycode event). */
+static inline bool dm_event_is_delay(const struct dm_event *ev) {
+    return ev->usage_page == DM_EVENT_DELAY_PAGE && ev->pressed != 0;
+}
+
+/* The delay duration (ms) carried by a delay marker event. */
+static inline uint16_t dm_event_delay_ms(const struct dm_event *ev) {
+    return ev->keycode;
+}
+
+/* Build a delay marker event of `ms` milliseconds. */
+static inline struct dm_event dm_event_make_delay(uint16_t ms) {
+    struct dm_event ev = {0};
+    ev.usage_page = DM_EVENT_DELAY_PAGE;
+    ev.keycode = ms;
+    ev.pressed = 1;
+    return ev;
+}
+
 struct dm_slot_view {
     uint32_t               event_count;
     const struct dm_event *events;

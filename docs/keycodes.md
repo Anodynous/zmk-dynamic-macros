@@ -4,7 +4,8 @@ All `&dm` bindings follow the form `&dm <COMMAND> <param2>`.
 
 `COMMAND` is one of the constants below, defined in
 `dt-bindings/zmk/dynamic_macros.h`. `param2` is either a slot index (for slot
-commands) or `0` for commands that don't use it — the compiler enforces this.
+commands), the delay in ms (for `DM_DELAY`), or `0` for commands that don't
+use it — the compiler enforces this.
 
 ## Quick Reference
 
@@ -23,6 +24,7 @@ commands) or `0` for commands that don't use it — the compiler enforces this.
 | `DM_STYLE_TOGGLE` | 10 | `0` | Toggle FULL / ARROW feedback style |
 | `DM_ERASE_TOGGLE` | 11 | `0` | Toggle auto-erase on / off |
 | `DM_TOG` | 13 | `0` | Toggle recording (start / stop) |
+| `DM_DELAY` | 14 | delay ms | Insert a delay into the recording |
 
 ---
 
@@ -76,6 +78,37 @@ while delete/move pending or while a macro plays is a no-op, and a press while
 feedback is being typed is ignored until it finishes.
 
 **Feedback:** identical to `DM_REC` / `DM_STP` for the transition it triggers.
+
+### `DM_DELAY` — Insert a delay into the recording
+
+```dts
+&dm DM_DELAY <ms>
+```
+
+While recording, inserts a **delay marker** at the current recording position.
+During playback the emitter inserts an extra pause of `<ms>` milliseconds at
+that point (on top of the base `TAP_DELAY`) and types nothing for the marker
+itself — so a recording of `F` + `DM_DELAY 0` + `I` + `DM_DELAY 25` + `N`
+outputs the same `FIN` as the delay-free recording, just with a default 50 ms pause
+between `F` and `I` and another 25ms between `I` and `N`.
+
+Rules:
+
+- **Recording only.** A press outside RECORDING is a no-op (like the other
+  recording keys, the press itself emits no keycode and is never recorded).
+- **Duration:** `param2` is the pause in ms, in the range `0..10000` (enforced
+  at build time). `param2 = 0` falls back to the Kconfig default
+  `CONFIG_ZMK_BEHAVIOR_DYNAMIC_MACRO_DELAY_MS` (default `50`). Both forms can
+  coexist in one keymap — e.g. `&dm DM_DELAY 5` (fixed 5 ms) next to
+  `&dm DM_DELAY 0` (default configured delay) — and a single take can
+  mix markers of different lengths.
+- **Any number of markers**, at any points in the take, including back to back.
+- Each marker occupies **one event slot** of the macro budget
+  (`MAX_EVENTS`); inserting one when the draft is full ends the take via the
+  normal OVERFLOW path.
+- Markers are stored with the macro, so they survive NVS persistence and
+  appear in previews / status output as a `D<ms>` token (e.g. `<D50>` in a
+  full-punctuation locale, `D50` in a plain locale).
 
 ---
 

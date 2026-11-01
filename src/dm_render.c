@@ -231,6 +231,42 @@ static const char *action_name(uint16_t usage_page, uint32_t keycode) {
     return "ACTION";
 }
 
+/*
+ * Delay-marker token: `D` + the duration in ms (e.g. D50, D10000). Rendered as
+ * a normal token unit, so full-punctuation locales wrap it in <> ("<D50>") and
+ * plain locales emit the bare name ("D50").
+ */
+static uint8_t delay_digits(uint16_t ms) {
+    uint8_t d = 1;
+    for (uint16_t v = ms / 10; v != 0; v /= 10) {
+        d++;
+    }
+    return d;
+}
+
+static uint8_t delay_token_size(dm_locale locale, uint16_t ms) {
+    return (uint8_t)(1 + delay_digits(ms) + (dm_locale_is_plain(locale) ? 0 : 2));
+}
+
+static void emit_delay_token(dm_sink *sink, dm_locale locale, uint16_t ms) {
+    if (!dm_locale_is_plain(locale)) {
+        sink->emit_char(sink->ctx, '<');
+    }
+    sink->emit_char(sink->ctx, 'D');
+    /* digits, most significant first */
+    char d[6];
+    int n = 0;
+    for (uint16_t v = ms; v > 0; v /= 10) {
+        d[n++] = (char)('0' + (v % 10));
+    }
+    while (n-- > 0) {
+        sink->emit_char(sink->ctx, d[n]);
+    }
+    if (!dm_locale_is_plain(locale)) {
+        sink->emit_char(sink->ctx, '>');
+    }
+}
+
 static const uint8_t mod_bits[] = {0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80};
 static const char *const mod_names[] = {"LCTL", "LSFT", "LALT", "LGUI",
                                         "RCTL", "RSFT", "RALT", "RGUI"};
@@ -305,6 +341,16 @@ bool dm_render_slot(const dm_render_slot_view *view, dm_locale locale, dm_sink *
 
     for (; cur->idx < view->event_count; cur->idx++) {
         const struct dm_event *ev = &view->events[cur->idx];
+
+        /* Delay markers (DM_DELAY) carry no keycode: one token per marker. */
+        if (dm_event_is_delay(ev)) {
+            uint8_t size = delay_token_size(locale, dm_event_delay_ms(ev));
+            if (!sink->space_for(sink->ctx, size)) {
+                return false;
+            }
+            emit_delay_token(sink, locale, dm_event_delay_ms(ev));
+            continue;
+        }
 
         if (is_modifier_key(ev->usage_page, ev->keycode)) {
             uint8_t mod_bit = (uint8_t)(1u << (ev->keycode - 0xE0));

@@ -3,7 +3,9 @@
 
 description: |
   Dynamic Macro behavior for recording and playing back key sequences.
-  param1 selects the command, param2 provides the slot index (for slot commands).
+  param1 selects the command; param2 provides the slot index (for slot
+  commands) or the delay in ms (for DM_DELAY, where 0 means the Kconfig
+  default ZMK_BEHAVIOR_DYNAMIC_MACRO_DELAY_MS).
 
   Commands (param1):
     0 (DM_REC)      - Start recording
@@ -15,6 +17,7 @@ description: |
     6 (DM_SLOT_RAM) - RAM slot (play/assign)
     7 (DM_PREVIEW)  - Preview mode
     13 (DM_TOG)     - Toggle recording (start when idle, stop when recording)
+    14 (DM_DELAY)   - Insert a delay marker (recording only; param2 = ms, 0 = default)
 
 compatible: "zmk,behavior-dynamic-macro"
 

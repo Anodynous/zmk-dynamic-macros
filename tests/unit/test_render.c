@@ -335,6 +335,74 @@ static bool stingy_space_for(void *ctx, uint8_t n) {
 
 #define KC_X 0x1B
 
+/* ---- delay markers (DM_DELAY) --------------------------------------------
+ *
+ * A delay marker (dm_event_make_delay) renders as a D<ms> token — the same
+ * unit shape as a <TOKEN> keystroke: full-punctuation locales wrap it in <>
+ * ("<D50>"), plain locales emit the bare name ("D50"). It never interacts
+ * with the modifier state and consumes exactly one event.
+ */
+
+#define DELAY_EV(ms) (struct dm_event){ .usage_page = DM_EVENT_DELAY_PAGE, .keycode = (ms), .pressed = 1 }
+
+ZTEST(dm_render, delay_token_full_locale) {
+    /* h + 50ms delay + l + o -> "h<D50>lo" */
+    struct dm_event evs[] = {
+        key(0x0B, 0, 0, 1), key(0x0B, 0, 0, 0),   /* h */
+        DELAY_EV(50),
+        key(0x0F, 0, 0, 1), key(0x0F, 0, 0, 0),   /* l */
+        key(0x12, 0, 0, 1), key(0x12, 0, 0, 0),   /* o */
+    };
+    struct buf_sink s;
+    render_into(&s, evs, 7, DM_LOCALE_US);
+    zassert_str_equal(s.buf, "h<D50>lo", "delay marker renders as <D50> between the keys");
+}
+
+ZTEST(dm_render, delay_token_plain_locale) {
+    /* DE plain mode: bare name, no angle brackets, no spurious separators. */
+    struct dm_event evs[] = {
+        key(0x0B, 0, 0, 1), key(0x0B, 0, 0, 0),
+        DELAY_EV(120),
+        key(0x0F, 0, 0, 1), key(0x0F, 0, 0, 0),
+    };
+    struct buf_sink s;
+    render_into(&s, evs, 5, DM_LOCALE_DE);
+    zassert_str_equal(s.buf, "hD120l", "plain locale renders the bare D<ms> name");
+}
+
+ZTEST(dm_render, delay_token_digit_widths) {
+    /* The digit run must track the duration exactly, from 1 ms to the 10000
+     * ms Kconfig ceiling (5 digits). */
+    struct dm_event evs[] = {
+        DELAY_EV(5),
+        DELAY_EV(999),
+        DELAY_EV(10000),
+    };
+    struct buf_sink s;
+    render_into(&s, evs, 3, DM_LOCALE_US);
+    zassert_str_equal(s.buf, "<D5><D999><D10000>", "token width follows the ms value");
+}
+
+ZTEST(dm_render, delay_token_backpressure) {
+    /* The token is one backpressure unit: a sink too small for it pauses with
+     * nothing emitted and resumes cleanly (the ring-sink contract). */
+    struct dm_event evs[] = {
+        key(0x04, 0, 0, 1), key(0x04, 0, 0, 0),  /* a */
+        DELAY_EV(1234),
+    };
+    struct stingy_sink s = {.limit = 1}; /* only 'a' fits */
+    dm_sink sink = {.emit_char = stingy_emit_char, .space_for = stingy_space_for, .ctx = &s};
+    dm_render_slot_view view = {.event_count = 3, .events = evs};
+    dm_render_cursor cur = {0};
+
+    zassert_false(dm_render_slot(&view, DM_LOCALE_US, &sink, &cur),
+                  "pauses when <D1234> does not fit");
+    zassert_str_equal(s.buf, "a", "no partial token emitted on the pause");
+    s.limit = sizeof(s.buf);
+    zassert_true(dm_render_slot(&view, DM_LOCALE_US, &sink, &cur), "completes on re-entry");
+    zassert_str_equal(s.buf, "a<D1234>", "token emitted whole on resume");
+}
+
 ZTEST(dm_render, resume_preserves_held_modifier) {
     /* Ctrl held across two tokens: <LCTL+C> then <LCTL+X>. */
     struct dm_event evs[] = {

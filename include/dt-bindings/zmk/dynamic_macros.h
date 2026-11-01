@@ -20,3 +20,4 @@
 #define DM_ERASE_TOGGLE 11
 #define DM_TEST_RELOAD  12
 #define DM_TOG      13
+#define DM_DELAY    14

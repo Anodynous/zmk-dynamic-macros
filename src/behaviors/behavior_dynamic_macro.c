@@ -91,8 +91,17 @@ BUILD_ASSERT(DT_NUM_INST_STATUS_OKAY(DT_DRV_COMPAT) <= 1,
 
 #define DM_VALIDATE_CMD_RANGE(idx, layer)                                                           \
     COND_CODE_1(DM_IS_DM_BINDING(idx, layer),                                                       \
-                (BUILD_ASSERT(DT_PHA_BY_IDX(layer, bindings, idx, param1) <= DM_TOG,                \
-                              "Dynamic macro param1 is not a valid command (expected 0-13)");),     \
+                (BUILD_ASSERT(DT_PHA_BY_IDX(layer, bindings, idx, param1) <= DM_DELAY,              \
+                              "Dynamic macro param1 is not a valid command (expected 0-14)");),     \
+                ())
+
+#define DM_VALIDATE_DELAY_CMD(idx, layer)                                                           \
+    COND_CODE_1(DM_IS_DM_BINDING(idx, layer),                                                       \
+                (BUILD_ASSERT(DT_PHA_BY_IDX(layer, bindings, idx, param1) != DM_DELAY ||            \
+                                  (DT_PHA_BY_IDX(layer, bindings, idx, param2) >= 0 &&              \
+                                   DT_PHA_BY_IDX(layer, bindings, idx, param2) <= DM_DELAY_MAX_MS), \
+                              "DM_DELAY param2 (delay in ms) must be in 0..DM_DELAY_MAX_MS "
+                              "(0 = Kconfig default)");),                                           \
                 ())
 
 #define DM_VALIDATE_CMD_NO_PARAM2(idx, layer, command)                                              \
@@ -119,7 +128,8 @@ BUILD_ASSERT(DT_NUM_INST_STATUS_OKAY(DT_DRV_COMPAT) <= 1,
     DM_VALIDATE_CMD_NO_PARAM2(idx, layer, DM_STYLE_TOGGLE)                                          \
     DM_VALIDATE_CMD_NO_PARAM2(idx, layer, DM_ERASE_TOGGLE)                                          \
     DM_VALIDATE_CMD_NO_PARAM2(idx, layer, DM_TEST_RELOAD)                                           \
-    DM_VALIDATE_CMD_NO_PARAM2(idx, layer, DM_TOG)
+    DM_VALIDATE_CMD_NO_PARAM2(idx, layer, DM_TOG)                                                   \
+    DM_VALIDATE_DELAY_CMD(idx, layer)
 
 #define DM_VALIDATE_KEYMAP_LAYER(layer)                                                             \
     COND_CODE_1(DT_NODE_HAS_PROP(layer, bindings),                                                  \
@@ -167,8 +177,14 @@ static const struct behavior_parameter_value_metadata dm_param_feedback_dec[] = 
 #endif
 static const struct behavior_parameter_value_metadata dm_param_toggle[] = {
     DM_COMMAND_VALUE("Toggle Record", DM_TOG)};
+static const struct behavior_parameter_value_metadata dm_param_delay[] = {
+    DM_COMMAND_VALUE("Delay (recording only)", DM_DELAY)};
 static const struct behavior_parameter_value_metadata dm_param_unused[] = {
     {.display_name = "Unused", .type = BEHAVIOR_PARAMETER_VALUE_TYPE_NIL}};
+static const struct behavior_parameter_value_metadata dm_param_delay_ms[] = {
+    {.display_name = "Delay in ms (0 = Kconfig default)",
+     .type = BEHAVIOR_PARAMETER_VALUE_TYPE_RANGE,
+     .range = {.min = 0, .max = DM_DELAY_MAX_MS}}};
 
 #if NVS_SLOTS > 0
 static const struct behavior_parameter_value_metadata dm_param_nvs_slot_index[] = {
@@ -216,6 +232,8 @@ static const struct behavior_parameter_metadata_set dm_parameter_metadata_sets[]
 #endif
     {.param1_values_len = ARRAY_SIZE(dm_param_toggle), .param1_values = dm_param_toggle,
      .param2_values_len = ARRAY_SIZE(dm_param_unused), .param2_values = dm_param_unused},
+    {.param1_values_len = ARRAY_SIZE(dm_param_delay), .param1_values = dm_param_delay,
+     .param2_values_len = ARRAY_SIZE(dm_param_delay_ms), .param2_values = dm_param_delay_ms},
 };
 
 static const struct behavior_parameter_metadata dm_parameter_metadata = {
@@ -341,30 +359,46 @@ static void playback_work_handler(struct k_work *work) {
      * drained in order rather than leaking live.
      */
     switch (dm_pb_emit_next(macro_remain, !dm_pb_empty(&inst->playback_ring))) {
-    case DM_PB_EMIT_MACRO:
-        playback_raise(inst, &slot.events[inst->playback_event++]);
+    case DM_PB_EMIT_MACRO: {
+        /* A delay marker emits nothing: it lengthens the interval before the
+         * next event by its own duration on top of the base TAP_DELAY. */
+        const struct dm_event *ev = &slot.events[inst->playback_event++];
+        bool delayed = dm_event_is_delay(ev);
+        if (!delayed) {
+            playback_raise(inst, ev);
+        }
+        k_timer_start(&inst->playback_timer,
+                      K_MSEC(TAP_DELAY + (delayed ? dm_event_delay_ms(ev) : 0)), K_NO_WAIT);
         break;
+    }
     case DM_PB_EMIT_BUFFER: {
         struct dm_event drained;
         (void)dm_pb_pop(&inst->playback_ring, &drained); /* non-empty per the verdict */
         playback_raise(inst, &drained);
+        k_timer_start(&inst->playback_timer, K_MSEC(TAP_DELAY), K_NO_WAIT);
         break;
     }
     case DM_PB_EMIT_FINISH:
         playback_finish(inst);
         return;
     }
-    k_timer_start(&inst->playback_timer, K_MSEC(TAP_DELAY), K_NO_WAIT);
 #else
     if (!macro_remain) {
         playback_finish(inst);
         return;
     }
-    playback_raise(inst, &slot.events[inst->playback_event++]);
+    const struct dm_event *ev = &slot.events[inst->playback_event++];
+    bool delayed = dm_event_is_delay(ev);
+    if (!delayed) {
+        playback_raise(inst, ev);
+    }
     if (inst->playback_event >= slot.event_count) {
         playback_finish(inst);
     } else {
-        k_timer_start(&inst->playback_timer, K_MSEC(TAP_DELAY), K_NO_WAIT);
+        /* A delay marker emits nothing but lengthens the interval before the
+         * next event (see the buffered path above). */
+        k_timer_start(&inst->playback_timer,
+                      K_MSEC(TAP_DELAY + (delayed ? dm_event_delay_ms(ev) : 0)), K_NO_WAIT);
     }
 #endif
 }
@@ -522,8 +556,9 @@ static void dispatch(struct dm_inst *inst, dm_command cmd, int param) {
     dm_machine_command(&inst->machine, cmd, param);
 }
 
-/* defined with the listener's recording helpers below; called on REC start */
+/* defined with the listener's recording helpers below */
 static void pending_mods_reset(struct dm_inst *inst);
+static bool record_event(struct dm_inst *inst, const struct dm_event *rec);
 
 static int on_keymap_binding_pressed(struct zmk_behavior_binding *binding,
                                      struct zmk_behavior_binding_event event) {
@@ -580,6 +615,23 @@ static int on_keymap_binding_pressed(struct zmk_behavior_binding *binding,
         return ZMK_BEHAVIOR_OPAQUE;
     case DM_STATE:
         dispatch(inst, DM_CMD_STATE, 0);
+        return ZMK_BEHAVIOR_OPAQUE;
+    case DM_DELAY:
+        /*
+         * Recording-only: insert a delay marker at the draft cursor. The press
+         * is swallowed (OPAQUE) and emits no keycode of its own; the marker is
+         * one draft event like any recorded keystroke (it counts against
+         * MAX_EVENTS, and an insert that overflows ends the take via the
+         * normal OVERFLOW path). It is not a machine transition — the machine
+         * owns state, and inserting an event leaves it untouched — so the
+         * RECORDING gate mirrors the listener's recording gate. A press outside
+         * RECORDING is a no-op.
+         */
+        if (dm_machine_state(&inst->machine) == DM_STATE_RECORDING) {
+            uint16_t ms = binding->param2 > 0 ? (uint16_t)binding->param2
+                                              : (uint16_t)DM_DELAY_DEFAULT_MS;
+            record_event(inst, dm_event_make_delay(ms));
+        }
         return ZMK_BEHAVIOR_OPAQUE;
     case DM_SLOT_NVS:
         if (binding->param2 < 0 || binding->param2 >= NVS_SLOTS) {

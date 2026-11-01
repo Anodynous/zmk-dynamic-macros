@@ -10,6 +10,16 @@ release line it targets, while the **patch** is the module's own.
 
 ### Added
 
+- `DM_DELAY` (14) keycode: while recording, inserts a delay marker at the
+  current recording position. During playback the emitter pauses its own
+  duration at that point (on top of the base `TAP_DELAY`) and types nothing
+  for the marker — so `F` + delay + `I` + delay + `N` outputs the same
+  `FIN` with an extra pause after `I` and after `N`. The duration is
+  definable per binding (`param2`, ms, `0..10000`); `param2 = 0` falls back
+  to the new `CONFIG_ZMK_BEHAVIOR_DYNAMIC_MACRO_DELAY_MS` (default `50`).
+  Markers are stored with the macro (one event slot each, NVS-persistent) and
+  render in previews/status as a `D<ms>` token (`<D50>`).
+
 - `DM_TOG` (13) keycode: a single key that toggles recording — it stops the
   recording while one is in progress and starts one otherwise (the first press
   after power-on starts recording). The press resolves to the existing

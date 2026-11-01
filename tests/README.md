@@ -21,6 +21,7 @@ Two test layers run in CI:
 | Test | Validates |
 |------|-----------|
 | `record_play` | Basic record → assign → playback flow |
+| `delay` | `DM_DELAY` inserts delay markers at any number of points during recording; playback emits no keycodes for the markers and replays the surrounding keys in order (a press while idle is a no-op) |
 | `record_timeout` | Pending-assign auto-cancels after the timeout |
 | `record_while_playing` | REC is ignored while a slot is playing back |
 | `stop_idle` | STP outside RECORDING is a no-op |

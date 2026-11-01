@@ -177,6 +177,14 @@ See [docs/keycodes.md](docs/keycodes.md) for the full binding reference includin
 | `&dm DM_STYLE_TOGGLE 0` | Toggle FULL / ARROW style (US/UK only, persisted) |
 | `&dm DM_ERASE_TOGGLE 0` | Toggle auto-erase on / off (persisted)     |
 | `&dm DM_TOG 0`        | Toggle recording (start / stop)            |
+| `&dm DM_DELAY MS`     | Insert a delay during recording (MS in ms; `0` = Kconfig default) |
+
+`DM_DELAY`'s param2 is the pause in ms, and both forms can coexist in one
+keymap: bind an explicit value for a fixed pause (`&dm DM_DELAY 5` → 5 ms,
+`&dm DM_DELAY 200` → 200 ms) or `0` to inherit the `DELAY_MS` Kconfig default
+(`&dm DM_DELAY 0` → 50 ms at the default config). So `F` + `DM_DELAY 100`
++ `I` + `DM_DELAY 0` + `N` replays as `FIN` with a 100 ms pause after `F` and
+a 50 ms pause after `I` (with the default `DELAY_MS`).
 
 ## Kconfig Options
 
@@ -188,6 +196,7 @@ See [docs/keycodes.md](docs/keycodes.md) for the full binding reference includin
 | `MAX_EVENTS_NVS`      | = `MAX_EVENTS` | Cap for macros stored in **NVS** slots (1-`MAX_EVENTS`) — one saved slot must fit a single NVS flash sector (~507 events at the default 4 KiB sector); NVS buffers are sized by it, so keeping it at the flash ceiling saves RAM |
 | `AVG_EVENTS_PER_SLOT` | 32      | Per-slot average the shared RAM pool is sized for (1-2048) — see [The shared event pool](#the-shared-event-pool-ram-sizing) |
 | `TAP_DELAY`           | 20      | ms between events during playback    |
+| `DELAY_MS`            | 50      | Default pause inserted by a `DM_DELAY` binding with param2 `0` (1-10000) |
 | `ASSIGN_TIMEOUT`      | 10000   | ms before pending mode auto-cancels  |
 | `PLAYBACK_BUFFER`     | y       | Buffer keys typed during playback, drain them after (see [Typing during playback](#typing-during-playback)) |
 | `PERSIST`             | y       | Enable NVS persistence               |

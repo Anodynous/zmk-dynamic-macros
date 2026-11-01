@@ -33,6 +33,19 @@
 #endif
 
 /*
+ * DM_DELAY delay markers: DM_DELAY_DEFAULT_MS is the duration a binding with
+ * param2 = 0 records; DM_DELAY_MAX_MS caps param2 at build time (keep in sync
+ * with the Kconfig range of ZMK_BEHAVIOR_DYNAMIC_MACRO_DELAY_MS).
+ */
+#ifdef CONFIG_ZMK_BEHAVIOR_DYNAMIC_MACRO_DELAY_MS
+#define DM_DELAY_DEFAULT_MS CONFIG_ZMK_BEHAVIOR_DYNAMIC_MACRO_DELAY_MS
+#else
+#define DM_DELAY_DEFAULT_MS 50
+#endif
+
+#define DM_DELAY_MAX_MS 10000
+
+/*
  * Playback buffer: capture the user's keypresses during macro playback and drain
  * them after (see docs/playback-buffer-plan.md). PLAYBACK_BUFFER_ENABLED gates the
  * whole feature; when 0 the ring/branch compile out and playback reverts to live

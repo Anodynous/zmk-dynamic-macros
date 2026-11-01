@@ -1,0 +1,64 @@
+#include <dt-bindings/zmk/keys.h>
+#include <behaviors.dtsi>
+#include <dt-bindings/zmk/kscan_mock.h>
+#include <behaviors/dynamic_macro.dtsi>
+#include <dt-bindings/zmk/dynamic_macros.h>
+
+&kscan {
+    rows = <5>;
+    columns = <2>;
+    exit-after;
+    events = <
+        /* DM_DELAY while idle: a no-op, nothing recorded or emitted */
+        ZMK_MOCK_PRESS(3,1,10)
+        ZMK_MOCK_RELEASE(3,1,10)
+        /* REC */
+        ZMK_MOCK_PRESS(0,0,10)
+        ZMK_MOCK_RELEASE(0,0,10)
+        /* H (recorded) */
+        ZMK_MOCK_PRESS(2,0,10)
+        ZMK_MOCK_RELEASE(2,0,10)
+        /* DM_DELAY 50ms (insert a delay marker at the draft cursor) */
+        ZMK_MOCK_PRESS(3,1,10)
+        ZMK_MOCK_RELEASE(3,1,10)
+        /* L (recorded) */
+        ZMK_MOCK_PRESS(2,1,10)
+        ZMK_MOCK_RELEASE(2,1,10)
+        /* DM_DELAY 50ms (a second marker — delays stack at any number of points) */
+        ZMK_MOCK_PRESS(3,1,10)
+        ZMK_MOCK_RELEASE(3,1,10)
+        /* O (recorded) */
+        ZMK_MOCK_PRESS(3,0,10)
+        ZMK_MOCK_RELEASE(3,0,10)
+        /* STP */
+        ZMK_MOCK_PRESS(0,1,10)
+        ZMK_MOCK_RELEASE(0,1,10)
+        /* SLOT_RAM 0 (assign) */
+        ZMK_MOCK_PRESS(1,0,10)
+        ZMK_MOCK_RELEASE(1,0,10)
+        /*
+         * SLOT_RAM 0 (play): the macro is H + 50ms + L + 50ms + O. The delay
+         * markers must emit NO keycodes of their own — the host sees exactly
+         * the H, L, O sequence, in order (the extra pauses themselves are
+         * timing, which the keycode snapshot cannot observe; the invariant is
+         * that they neither drop, reorder, or leak a keystroke).
+         */
+        ZMK_MOCK_PRESS(1,0,2000)
+        ZMK_MOCK_RELEASE(1,0,10)
+    >;
+};
+
+/ {
+    keymap {
+        compatible = "zmk,keymap";
+        default_layer {
+            bindings = <
+                &dm DM_REC 0        &dm DM_STP 0
+                &dm DM_SLOT_RAM 0   &dm DM_SLOT_RAM 1
+                &kp H               &kp L
+                &kp O               &dm DM_DELAY 50
+                &none               &none
+            >;
+        };
+    };
+};
