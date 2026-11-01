@@ -317,6 +317,8 @@ static void playback_finish(struct dm_inst *inst) {
     dm_machine_play_finished(&inst->machine);
 #if IS_ENABLED(CONFIG_ZMK_BEHAVIOR_DYNAMIC_MACRO_EVENTS)
     dm_events_raise(inst, DM_EVT_PLAY_FINISHED, slot, -1);
+#else
+    (void)slot; /* only the notification names the slot */
 #endif
 }
 
@@ -629,7 +631,8 @@ static int on_keymap_binding_pressed(struct zmk_behavior_binding *binding,
         if (dm_machine_state(&inst->machine) == DM_STATE_RECORDING) {
             uint16_t ms = binding->param2 > 0 ? (uint16_t)binding->param2
                                               : (uint16_t)DM_DELAY_DEFAULT_MS;
-            record_event(inst, dm_event_make_delay(ms));
+            struct dm_event delay_ev = dm_event_make_delay(ms);
+            record_event(inst, &delay_ev);
         }
         return ZMK_BEHAVIOR_OPAQUE;
     case DM_SLOT_NVS:
