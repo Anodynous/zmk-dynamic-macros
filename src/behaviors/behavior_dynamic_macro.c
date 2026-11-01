@@ -100,8 +100,7 @@ BUILD_ASSERT(DT_NUM_INST_STATUS_OKAY(DT_DRV_COMPAT) <= 1,
                 (BUILD_ASSERT(DT_PHA_BY_IDX(layer, bindings, idx, param1) != DM_DELAY ||            \
                                   (DT_PHA_BY_IDX(layer, bindings, idx, param2) >= 0 &&              \
                                    DT_PHA_BY_IDX(layer, bindings, idx, param2) <= DM_DELAY_MAX_MS), \
-                              "DM_DELAY param2 (delay in ms) must be in 0..DM_DELAY_MAX_MS "
-                              "(0 = Kconfig default)");),                                           \
+                              "DM_DELAY param2 (delay in ms) must be in 0..DM_DELAY_MAX_MS (0 = Kconfig default)");), \
                 ())
 
 #define DM_VALIDATE_CMD_NO_PARAM2(idx, layer, command)                                              \
